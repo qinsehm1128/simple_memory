@@ -95,6 +95,61 @@
     </div>
 
     <div class="settings-section">
+        <h2>🔄 重排模型配置 (可选)</h2>
+        <p class="section-desc">用于对搜索结果进行二次排序，提高相关性</p>
+
+        <div class="form-group">
+            <label>
+                <input type="checkbox" id="rerank-enabled" {% if config.rerank.enabled %}checked{% endif %}>
+                启用重排模型
+            </label>
+        </div>
+
+        <div id="rerank-config" style="{% if not config.rerank.enabled %}display: none;{% endif %}">
+            <div class="form-group">
+                <label>提供商</label>
+                <select id="rerank-provider">
+                    <option value="api" {% if config.rerank.provider == 'api' %}selected{% endif %}>API (Cohere/Jina等)</option>
+                    <option value="ollama" {% if config.rerank.provider == 'ollama' %}selected{% endif %}>Ollama (本地)</option>
+                </select>
+            </div>
+
+            <div id="rerank-api-config" class="provider-config">
+                <div class="form-group">
+                    <label>API URL</label>
+                    <input type="text" id="rerank-api-url" value="{{ config.rerank.api_url }}" placeholder="https://api.cohere.ai/v1/rerank">
+                    <small>支持 Cohere、Jina 等重排 API</small>
+                </div>
+                <div class="form-group">
+                    <label>API Key</label>
+                    <input type="password" id="rerank-api-key" value="{{ config.rerank.api_key }}" placeholder="your-api-key">
+                </div>
+                <div class="form-group">
+                    <label>模型</label>
+                    <input type="text" id="rerank-model" value="{{ config.rerank.model }}" placeholder="rerank-multilingual-v3.0">
+                </div>
+            </div>
+
+            <div id="rerank-ollama-config" class="provider-config" style="display: none;">
+                <div class="form-group">
+                    <label>Ollama Host</label>
+                    <input type="text" id="rerank-ollama-host" value="{{ config.rerank.ollama_host }}" placeholder="http://localhost:11434">
+                </div>
+                <div class="form-group">
+                    <label>模型名称</label>
+                    <input type="text" id="rerank-ollama-model" value="{{ config.rerank.ollama_model }}" placeholder="bge-reranker-base">
+                    <small>如果模型不存在，将自动下载</small>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>返回结果数 (Top K)</label>
+                <input type="number" id="rerank-top-k" value="{{ config.rerank.top_k }}" placeholder="5" min="1" max="20">
+            </div>
+        </div>
+    </div>
+
+    <div class="settings-section">
         <h2>💾 数据库配置</h2>
         <p class="section-desc">LanceDB 存储路径</p>
 
@@ -191,12 +246,18 @@ document.addEventListener('DOMContentLoaded', function() {
     // Toggle provider configs
     const llmProvider = document.getElementById('llm-provider');
     const embeddingProvider = document.getElementById('embedding-provider');
+    const rerankEnabled = document.getElementById('rerank-enabled');
+    const rerankProvider = document.getElementById('rerank-provider');
 
     llmProvider.addEventListener('change', updateLLMConfig);
     embeddingProvider.addEventListener('change', updateEmbeddingConfig);
+    rerankEnabled.addEventListener('change', updateRerankEnabled);
+    rerankProvider.addEventListener('change', updateRerankConfig);
 
     updateLLMConfig();
     updateEmbeddingConfig();
+    updateRerankEnabled();
+    updateRerankConfig();
 
     function updateLLMConfig() {
         const provider = llmProvider.value;
@@ -208,6 +269,17 @@ document.addEventListener('DOMContentLoaded', function() {
         const provider = embeddingProvider.value;
         document.getElementById('embedding-openai-config').style.display = provider === 'openai' ? 'block' : 'none';
         document.getElementById('embedding-ollama-config').style.display = provider === 'ollama' ? 'block' : 'none';
+    }
+
+    function updateRerankEnabled() {
+        const enabled = rerankEnabled.checked;
+        document.getElementById('rerank-config').style.display = enabled ? 'block' : 'none';
+    }
+
+    function updateRerankConfig() {
+        const provider = rerankProvider.value;
+        document.getElementById('rerank-api-config').style.display = provider === 'api' ? 'block' : 'none';
+        document.getElementById('rerank-ollama-config').style.display = provider === 'ollama' ? 'block' : 'none';
     }
 
     // Save config
@@ -222,6 +294,8 @@ async function saveConfig() {
 
     const llmProvider = document.getElementById('llm-provider').value;
     const embeddingProvider = document.getElementById('embedding-provider').value;
+
+    const rerankProvider = document.getElementById('rerank-provider').value;
 
     const config = {
         llm: {
@@ -241,6 +315,16 @@ async function saveConfig() {
             ollama_host: document.getElementById('embedding-ollama-host').value,
             ollama_model: document.getElementById('embedding-ollama-model').value,
             dimensions: parseInt(document.getElementById('embedding-dimensions').value) || 1536,
+        },
+        rerank: {
+            enabled: document.getElementById('rerank-enabled').checked,
+            provider: rerankProvider,
+            api_url: document.getElementById('rerank-api-url').value,
+            api_key: document.getElementById('rerank-api-key').value,
+            model: document.getElementById('rerank-model').value,
+            ollama_host: document.getElementById('rerank-ollama-host').value,
+            ollama_model: document.getElementById('rerank-ollama-model').value,
+            top_k: parseInt(document.getElementById('rerank-top-k').value) || 5,
         },
         database: {
             path: document.getElementById('db-path').value,

@@ -85,6 +85,13 @@
 </div>
 
 <script>
+// Helper function to get similarity class based on score
+function getSimilarityClass(similarity) {
+    if (similarity >= 70) return 'similarity-high';
+    if (similarity >= 50) return 'similarity-medium';
+    return 'similarity-low';
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     // Load stats
     loadStats();
@@ -116,6 +123,10 @@ document.addEventListener('DOMContentLoaded', function() {
             if (data.success && data.results.length > 0) {
                 searchResults.innerHTML = data.results.map(mem => `
                     <div class="memory-card">
+                        <div class="memory-header">
+                            <span class="similarity-badge ${getSimilarityClass(mem.similarity)}">${mem.similarity || 0}% 相似</span>
+                            ${mem.rerank_score ? `<span class="rerank-badge">${mem.rerank_score}% 重排</span>` : ''}
+                        </div>
                         <div class="memory-content">${escapeHtml(mem.processed_content || mem.content)}</div>
                         <div class="memory-meta">
                             <span class="memory-tags">${(mem.tags || []).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}</span>

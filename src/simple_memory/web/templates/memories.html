@@ -21,7 +21,11 @@
         <select id="tag-filter">
             <option value="">所有标签</option>
         </select>
-        <button id="search-filter-btn">筛选</button>
+        <select id="search-mode">
+            <option value="local">本地筛选</option>
+            <option value="semantic">语义搜索</option>
+        </select>
+        <button id="search-filter-btn">搜索</button>
     </div>
     <div class="toolbar-actions">
         <button id="refresh-btn" class="btn-secondary">刷新</button>
@@ -53,6 +57,14 @@
 let allMemories = [];
 let allTags = [];
 let currentMemoryId = null;
+let isSemanticSearchResult = false;
+
+// Helper function to get similarity class based on score
+function getSimilarityClass(similarity) {
+    if (similarity >= 70) return 'similarity-high';
+    if (similarity >= 50) return 'similarity-medium';
+    return 'similarity-low';
+}
 
 document.addEventListener('DOMContentLoaded', function() {
     loadMemories();
@@ -60,9 +72,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Event listeners
     document.getElementById('refresh-btn').addEventListener('click', loadMemories);
-    document.getElementById('search-filter-btn').addEventListener('click', filterMemories);
+    document.getElementById('search-filter-btn').addEventListener('click', performSearch);
     document.getElementById('filter-input').addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') filterMemories();
+        if (e.key === 'Enter') performSearch();
     });
 
     // Modal
@@ -112,7 +124,7 @@ async function loadTags() {
     }
 }
 
-function renderMemories(memories) {
+function renderMemories(memories, showSimilarity = false) {
     const list = document.getElementById('memories-list');
 
     if (memories.length === 0) {
@@ -124,6 +136,10 @@ function renderMemories(memories) {
         <div class="memory-card" data-id="${mem.id}">
             <div class="memory-header">
                 <span class="memory-id">#${mem.id.substring(0, 8)}</span>
+                ${showSimilarity && mem.similarity !== undefined ? `
+                    <span class="similarity-badge ${getSimilarityClass(mem.similarity)}">${mem.similarity}% 相似</span>
+                    ${mem.rerank_score ? `<span class="rerank-badge">${mem.rerank_score}% 重排</span>` : ''}
+                ` : ''}
                 <span class="memory-date">${formatDate(mem.created_at)}</span>
             </div>
             <div class="memory-content">
@@ -139,10 +155,21 @@ function renderMemories(memories) {
     `).join('');
 }
 
-function filterMemories() {
-    const query = document.getElementById('filter-input').value.toLowerCase().trim();
+async function performSearch() {
+    const query = document.getElementById('filter-input').value.trim();
     const selectedTag = document.getElementById('tag-filter').value;
+    const searchMode = document.getElementById('search-mode').value;
 
+    if (searchMode === 'semantic' && query) {
+        // Semantic search using API
+        await semanticSearch(query, selectedTag);
+    } else {
+        // Local filtering
+        filterMemoriesLocal(query.toLowerCase(), selectedTag);
+    }
+}
+
+function filterMemoriesLocal(query, selectedTag) {
     let filtered = allMemories;
 
     if (query) {
@@ -158,7 +185,36 @@ function filterMemories() {
         });
     }
 
-    renderMemories(filtered);
+    isSemanticSearchResult = false;
+    renderMemories(filtered, false);
+}
+
+async function semanticSearch(query, selectedTag) {
+    const list = document.getElementById('memories-list');
+    list.innerHTML = '<div class="loading">语义搜索中...</div>';
+
+    try {
+        const requestBody = { query, limit: 20 };
+        if (selectedTag) {
+            requestBody.tags = [selectedTag];
+        }
+
+        const response = await fetch('/api/memories/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            isSemanticSearchResult = true;
+            renderMemories(data.results, true);
+        } else {
+            list.innerHTML = `<div class="error">搜索失败: ${data.error}</div>`;
+        }
+    } catch (error) {
+        list.innerHTML = `<div class="error">搜索失败: ${error.message}</div>`;
+    }
 }
 
 async function viewMemory(id) {
