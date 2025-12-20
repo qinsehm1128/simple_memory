@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+
+{% block title %}首页 - Simple Memory{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Simple Memory</h1>
+    <p class="subtitle">基于 LanceDB 的智能记忆仓库</p>
+</div>
+
+<div class="dashboard">
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-icon">📚</div>
+            <div class="stat-content">
+                <div class="stat-value" id="total-memories">-</div>
+                <div class="stat-label">总记忆数</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">🏷️</div>
+            <div class="stat-content">
+                <div class="stat-value" id="total-tags">-</div>
+                <div class="stat-label">标签数</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">⚙️</div>
+            <div class="stat-content">
+                <div class="stat-value" id="config-status">
+                    {% if config.is_configured() %}
+                    <span class="text-success">已就绪</span>
+                    {% else %}
+                    <span class="text-error">未配置</span>
+                    {% endif %}
+                </div>
+                <div class="stat-label">系统状态</div>
+            </div>
+        </div>
+    </div>
+
+    {% if not config.is_configured() %}
+    <div class="alert alert-warning">
+        <h3>⚠️ 系统未配置</h3>
+        <p>请先前往 <a href="/settings">设置页面</a> 配置 LLM 和嵌入模型，才能使用 MCP 服务。</p>
+    </div>
+    {% endif %}
+
+    <div class="feature-grid">
+        <div class="feature-card">
+            <h3>🧠 智能记忆</h3>
+            <p>使用 LLM 自动整理和提取关键信息，生成结构化的记忆条目。</p>
+        </div>
+        <div class="feature-card">
+            <h3>🔍 语义搜索</h3>
+            <p>基于向量嵌入的语义搜索，找到最相关的记忆内容。</p>
+        </div>
+        <div class="feature-card">
+            <h3>🔌 MCP 集成</h3>
+            <p>通过 MCP 协议与 Claude 等 AI 助手无缝集成。</p>
+        </div>
+        <div class="feature-card">
+            <h3>💾 LanceDB 存储</h3>
+            <p>使用高性能的 LanceDB 作为向量数据库，支持大规模数据。</p>
+        </div>
+    </div>
+
+    <div class="quick-search">
+        <h2>快速搜索</h2>
+        <div class="search-box">
+            <input type="text" id="search-input" placeholder="输入关键词搜索记忆..." {% if not config.is_configured() %}disabled{% endif %}>
+            <button id="search-btn" {% if not config.is_configured() %}disabled{% endif %}>搜索</button>
+        </div>
+        <div id="search-results" class="search-results"></div>
+    </div>
+
+    <div class="quick-add">
+        <h2>快速添加记忆</h2>
+        <div class="add-memory-form">
+            <textarea id="memory-content" placeholder="输入要记住的内容..." rows="4" {% if not config.is_configured() %}disabled{% endif %}></textarea>
+            <button id="add-memory-btn" {% if not config.is_configured() %}disabled{% endif %}>添加记忆</button>
+        </div>
+        <div id="add-result" class="add-result"></div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Load stats
+    loadStats();
+
+    // Search functionality
+    const searchInput = document.getElementById('search-input');
+    const searchBtn = document.getElementById('search-btn');
+    const searchResults = document.getElementById('search-results');
+
+    searchBtn.addEventListener('click', performSearch);
+    searchInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') performSearch();
+    });
+
+    async function performSearch() {
+        const query = searchInput.value.trim();
+        if (!query) return;
+
+        searchResults.innerHTML = '<div class="loading">搜索中...</div>';
+
+        try {
+            const response = await fetch('/api/memories/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query, limit: 5 })
+            });
+            const data = await response.json();
+
+            if (data.success && data.results.length > 0) {
+                searchResults.innerHTML = data.results.map(mem => `
+                    <div class="memory-card">
+                        <div class="memory-content">${escapeHtml(mem.processed_content || mem.content)}</div>
+                        <div class="memory-meta">
+                            <span class="memory-tags">${(mem.tags || []).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}</span>
+                            <span class="memory-date">${formatDate(mem.created_at)}</span>
+                        </div>
+                    </div>
+                `).join('');
+            } else {
+                searchResults.innerHTML = '<div class="no-results">没有找到相关记忆</div>';
+            }
+        } catch (error) {
+            searchResults.innerHTML = `<div class="error">搜索失败: ${error.message}</div>`;
+        }
+    }
+
+    // Add memory functionality
+    const memoryContent = document.getElementById('memory-content');
+    const addMemoryBtn = document.getElementById('add-memory-btn');
+    const addResult = document.getElementById('add-result');
+
+    addMemoryBtn.addEventListener('click', addMemory);
+
+    async function addMemory() {
+        const content = memoryContent.value.trim();
+        if (!content) return;
+
+        addResult.innerHTML = '<div class="loading">正在处理并添加记忆...</div>';
+        addMemoryBtn.disabled = true;
+
+        try {
+            const response = await fetch('/api/memories', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content })
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                addResult.innerHTML = `<div class="success">记忆添加成功! ID: ${data.memory_id}</div>`;
+                memoryContent.value = '';
+                loadStats();
+            } else {
+                addResult.innerHTML = `<div class="error">添加失败: ${data.error}</div>`;
+            }
+        } catch (error) {
+            addResult.innerHTML = `<div class="error">添加失败: ${error.message}</div>`;
+        } finally {
+            addMemoryBtn.disabled = false;
+        }
+    }
+});
+
+async function loadStats() {
+    try {
+        const response = await fetch('/api/stats');
+        const data = await response.json();
+
+        if (data.success) {
+            document.getElementById('total-memories').textContent = data.stats.total_memories;
+            document.getElementById('total-tags').textContent = data.stats.tags.length;
+        }
+    } catch (error) {
+        console.error('Failed to load stats:', error);
+    }
+}
+</script>
+{% endblock %}
