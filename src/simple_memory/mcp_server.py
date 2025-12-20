@@ -1,5 +1,6 @@
 """MCP Server for Simple Memory."""
 
+import argparse
 import asyncio
 import json
 import logging
@@ -360,8 +361,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         return [TextContent(type="text", text=f"Error: {str(e)}")]
 
 
-async def run_server():
-    """Run the MCP server."""
+async def run_stdio_server():
+    """Run the MCP server with stdio transport."""
     async with stdio_server() as (read_stream, write_stream):
         await server.run(
             read_stream,
@@ -370,9 +371,85 @@ async def run_server():
         )
 
 
+async def run_sse_server(host: str = "0.0.0.0", port: int = 8766):
+    """Run the MCP server with SSE transport for remote access."""
+    from mcp.server.sse import SseServerTransport
+    from starlette.applications import Starlette
+    from starlette.routing import Route
+    from starlette.responses import JSONResponse
+    import uvicorn
+
+    sse = SseServerTransport("/messages/")
+
+    async def handle_sse(request):
+        async with sse.connect_sse(
+            request.scope, request.receive, request._send
+        ) as streams:
+            await server.run(
+                streams[0],
+                streams[1],
+                server.create_initialization_options(),
+            )
+
+    async def handle_messages(request):
+        await sse.handle_post_message(request.scope, request.receive, request._send)
+
+    async def health_check(request):
+        config = get_config()
+        return JSONResponse({
+            "status": "ok",
+            "configured": config.is_configured(),
+            "server": "simple-memory",
+        })
+
+    app = Starlette(
+        debug=False,
+        routes=[
+            Route("/health", health_check, methods=["GET"]),
+            Route("/sse", handle_sse, methods=["GET"]),
+            Route("/messages/", handle_messages, methods=["POST"]),
+        ],
+    )
+
+    logger.info(f"Starting SSE MCP server at http://{host}:{port}")
+    logger.info(f"SSE endpoint: http://{host}:{port}/sse")
+    logger.info(f"Health check: http://{host}:{port}/health")
+
+    config = uvicorn.Config(app, host=host, port=port, log_level="info")
+    server_instance = uvicorn.Server(config)
+    await server_instance.serve()
+
+
 def main():
     """Main entry point."""
-    asyncio.run(run_server())
+    parser = argparse.ArgumentParser(description="Simple Memory MCP Server")
+    parser.add_argument(
+        "--transport",
+        "-t",
+        choices=["stdio", "sse"],
+        default="stdio",
+        help="Transport type: stdio (default) or sse for remote access",
+    )
+    parser.add_argument(
+        "--host",
+        "-H",
+        default="0.0.0.0",
+        help="Host to bind SSE server (default: 0.0.0.0)",
+    )
+    parser.add_argument(
+        "--port",
+        "-p",
+        type=int,
+        default=8766,
+        help="Port for SSE server (default: 8766)",
+    )
+
+    args = parser.parse_args()
+
+    if args.transport == "sse":
+        asyncio.run(run_sse_server(args.host, args.port))
+    else:
+        asyncio.run(run_stdio_server())
 
 
 if __name__ == "__main__":

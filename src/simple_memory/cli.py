@@ -12,12 +12,15 @@ def main():
         epilog="""
 Commands:
   web       Start the web interface (default)
-  mcp       Start the MCP server
+  mcp       Start the MCP server (stdio mode for local use)
+  serve     Start the MCP server with SSE for remote access
 
 Examples:
-  simple-memory web          # Start web interface on default port
-  simple-memory web -p 8080  # Start web interface on port 8080
-  simple-memory mcp          # Start MCP server (for Claude Desktop)
+  simple-memory web              # Start web interface on default port
+  simple-memory web -p 8080      # Start web interface on port 8080
+  simple-memory mcp              # Start MCP server (stdio, for Claude Desktop)
+  simple-memory serve            # Start SSE server for remote MCP access
+  simple-memory serve -p 8766    # Start SSE server on custom port
         """,
     )
 
@@ -33,15 +36,36 @@ Examples:
     )
     web_parser.add_argument("--debug", action="store_true", help="Enable debug mode")
 
-    # MCP command
-    subparsers.add_parser("mcp", help="Start the MCP server")
+    # MCP command (stdio)
+    subparsers.add_parser("mcp", help="Start the MCP server (stdio mode)")
+
+    # Serve command (SSE for remote access)
+    serve_parser = subparsers.add_parser("serve", help="Start MCP server with SSE for remote access")
+    serve_parser.add_argument(
+        "-p", "--port", type=int, default=8766, help="Port for SSE server (default: 8766)"
+    )
+    serve_parser.add_argument(
+        "-H", "--host", type=str, default="0.0.0.0", help="Host to bind to (default: 0.0.0.0)"
+    )
 
     args = parser.parse_args()
 
     if args.command == "mcp":
-        from .mcp_server import main as mcp_main
+        from .mcp_server import run_stdio_server
+        import asyncio
 
-        mcp_main()
+        asyncio.run(run_stdio_server())
+
+    elif args.command == "serve":
+        from .mcp_server import run_sse_server
+        import asyncio
+
+        print(f"Starting Simple Memory MCP SSE server")
+        print(f"SSE endpoint: http://{args.host}:{args.port}/sse")
+        print(f"Health check: http://{args.host}:{args.port}/health")
+        print("Press Ctrl+C to stop")
+        asyncio.run(run_sse_server(args.host, args.port))
+
     elif args.command == "web":
         from .config import get_config_manager
 

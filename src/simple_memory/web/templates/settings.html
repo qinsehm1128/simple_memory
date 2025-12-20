@@ -119,7 +119,7 @@
     </div>
 
     <div class="settings-section mcp-info">
-        <h2>📌 MCP 配置</h2>
+        <h2>📌 MCP 配置 (本地模式)</h2>
         <p class="section-desc">将以下配置添加到你的 Claude Desktop 或其他 MCP 客户端</p>
 
         <div class="code-block">
@@ -147,6 +147,42 @@
 }</code></pre>
             <button class="copy-btn" onclick="copyMcpConfigUv()">复制</button>
         </div>
+    </div>
+
+    <div class="settings-section mcp-info">
+        <h2>🌐 远程 MCP 配置 (SSE 模式)</h2>
+        <p class="section-desc">部署到服务器后，通过 URL 远程访问 MCP 服务</p>
+
+        <h3>1. 启动 SSE 服务器</h3>
+        <div class="code-block">
+            <pre><code># 在服务器上运行
+simple-memory serve -p 8766
+
+# 或者
+python -m simple_memory.mcp_server --transport sse -p 8766</code></pre>
+        </div>
+
+        <h3>2. 配置 MCP 客户端 (SSE)</h3>
+        <div class="code-block">
+            <pre><code>{
+  "mcpServers": {
+    "simple-memory": {
+      "transport": "sse",
+      "url": "http://YOUR_SERVER_IP:8766/sse"
+    }
+  }
+}</code></pre>
+            <button class="copy-btn" onclick="copyMcpConfigSse()">复制</button>
+        </div>
+
+        <h3>3. 端点说明</h3>
+        <ul class="endpoint-list">
+            <li><strong>SSE 端点:</strong> <code>http://YOUR_SERVER_IP:8766/sse</code></li>
+            <li><strong>健康检查:</strong> <code>http://YOUR_SERVER_IP:8766/health</code></li>
+            <li><strong>Web 管理:</strong> <code>http://YOUR_SERVER_IP:8765</code></li>
+        </ul>
+
+        <p class="note">注意：确保服务器防火墙开放 8765 (Web) 和 8766 (MCP SSE) 端口</p>
     </div>
 </div>
 
@@ -309,6 +345,19 @@ function copyMcpConfigUv() {
     };
     navigator.clipboard.writeText(JSON.stringify(config, null, 2));
     alert('已复制到剪贴板');
+}
+
+function copyMcpConfigSse() {
+    const config = {
+        mcpServers: {
+            "simple-memory": {
+                transport: "sse",
+                url: "http://YOUR_SERVER_IP:8766/sse"
+            }
+        }
+    };
+    navigator.clipboard.writeText(JSON.stringify(config, null, 2));
+    alert('已复制到剪贴板，请将 YOUR_SERVER_IP 替换为实际服务器地址');
 }
 </script>
 {% endblock %}

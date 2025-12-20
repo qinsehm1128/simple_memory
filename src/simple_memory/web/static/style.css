@@ -592,6 +592,35 @@ button:hover:not(:disabled) {
     background: linear-gradient(135deg, var(--surface), var(--surface-light));
 }
 
+.mcp-info h3 {
+    color: var(--text-primary);
+    margin-top: 1.5rem;
+    margin-bottom: 0.75rem;
+    font-size: 1rem;
+}
+
+.endpoint-list {
+    list-style: none;
+    padding: 0;
+    margin: 1rem 0;
+}
+
+.endpoint-list li {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.endpoint-list li:last-child {
+    border-bottom: none;
+}
+
+.endpoint-list code {
+    background: var(--background);
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.875rem;
+}
+
 .code-block {
     position: relative;
     background: var(--background);
