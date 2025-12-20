@@ -219,7 +219,8 @@ class MemoryManager:
         limit: int = 10,
         user_id: Optional[str] = None,
         tags: Optional[List[str]] = None,
-        distance_threshold: float = 0.8,
+        distance_threshold: Optional[float] = None,
+        min_similarity: Optional[float] = None,
         use_rerank: bool = True,
     ) -> List[Dict[str, Any]]:
         """Search for similar memories.
@@ -230,13 +231,22 @@ class MemoryManager:
             user_id: Filter by user ID
             tags: Filter by tags
             distance_threshold: Maximum distance threshold (0.0-2.0, lower = more similar)
-                               Default is 0.8 for good relevance
+                               Uses config value if not specified
+            min_similarity: Minimum similarity percentage (0-100) to include in results
+                           Uses config value if not specified
             use_rerank: Whether to use reranker if available
 
         Returns:
             List of matching memories with similarity scores
         """
         await self.initialize()
+
+        # Use config defaults if not specified
+        config = get_config()
+        if distance_threshold is None:
+            distance_threshold = config.search.distance_threshold
+        if min_similarity is None:
+            min_similarity = config.search.min_similarity
 
         # Generate query embedding
         query_embedding = await self.embeddings.embed(query)
@@ -254,10 +264,23 @@ class MemoryManager:
             tags=tags,
         )
 
-        # Add similarity scores
+        # Add similarity scores and filter by minimum similarity
+        filtered_results = []
         for result in results:
             distance = result.get("_distance", 0.0)
-            result["similarity"] = distance_to_similarity(distance)
+            similarity = distance_to_similarity(distance)
+            result["similarity"] = similarity
+
+            # Only include results above minimum similarity threshold
+            if similarity >= min_similarity:
+                filtered_results.append(result)
+            else:
+                logger.debug(f"Filtered out result with similarity {similarity}% < {min_similarity}%")
+
+        results = filtered_results
+
+        # Sort by similarity (highest first)
+        results.sort(key=lambda x: x.get("similarity", 0), reverse=True)
 
         # Apply reranking if available
         if reranker and results:

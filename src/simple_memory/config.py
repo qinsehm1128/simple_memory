@@ -49,6 +49,13 @@ class RerankConfig(BaseModel):
     top_k: int = 5  # Number of results to return after reranking
 
 
+class SearchConfig(BaseModel):
+    """Search configuration."""
+
+    min_similarity: float = 50.0  # Minimum similarity percentage (0-100)
+    distance_threshold: float = 1.0  # Maximum distance threshold
+
+
 class DatabaseConfig(BaseModel):
     """Database configuration."""
 
@@ -70,6 +77,7 @@ class AppConfig(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     rerank: RerankConfig = Field(default_factory=RerankConfig)
+    search: SearchConfig = Field(default_factory=SearchConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     web: WebConfig = Field(default_factory=WebConfig)
     configured: bool = False

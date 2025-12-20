@@ -96,6 +96,9 @@ def update_config_api():
         if "rerank" in data:
             updates["rerank"] = data["rerank"]
 
+        if "search" in data:
+            updates["search"] = data["search"]
+
         if "web" in data:
             updates["web"] = data["web"]
 
