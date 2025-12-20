@@ -385,6 +385,15 @@ async function testConfig() {
                 </div>
             `;
 
+            // Show rerank test result if enabled
+            if (data.results.rerank && data.results.rerank.enabled) {
+                html += `
+                    <div class="test-item ${data.results.rerank.success ? 'success' : 'error'}">
+                        <strong>重排模型:</strong> ${data.results.rerank.success ? '✅' : '❌'} ${escapeHtml(data.results.rerank.message)}
+                    </div>
+                `;
+            }
+
             if (data.success) {
                 html += '<div class="test-summary success">✅ 所有连接测试通过！MCP 已就绪。</div>';
                 // Reload page to update status
