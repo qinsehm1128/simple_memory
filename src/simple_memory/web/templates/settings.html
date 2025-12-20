@@ -1,0 +1,314 @@
+{% extends "base.html" %}
+
+{% block title %}设置 - Simple Memory{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>系统设置</h1>
+    <p class="subtitle">配置 LLM 和嵌入模型</p>
+</div>
+
+<div class="settings-container">
+    <div class="settings-section">
+        <h2>🤖 LLM 配置</h2>
+        <p class="section-desc">用于整理和处理记忆内容的大语言模型</p>
+
+        <div class="form-group">
+            <label>提供商</label>
+            <select id="llm-provider">
+                <option value="openai" {% if config.llm.provider == 'openai' %}selected{% endif %}>OpenAI / 兼容 API</option>
+                <option value="ollama" {% if config.llm.provider == 'ollama' %}selected{% endif %}>Ollama (本地)</option>
+            </select>
+        </div>
+
+        <div id="llm-openai-config" class="provider-config">
+            <div class="form-group">
+                <label>API URL</label>
+                <input type="text" id="llm-api-url" value="{{ config.llm.api_url }}" placeholder="https://api.openai.com/v1">
+                <small>支持 OpenAI 兼容的 API，如 Azure、本地代理等</small>
+            </div>
+            <div class="form-group">
+                <label>API Key</label>
+                <input type="password" id="llm-api-key" value="{{ config.llm.api_key }}" placeholder="sk-...">
+            </div>
+            <div class="form-group">
+                <label>模型</label>
+                <input type="text" id="llm-model" value="{{ config.llm.model }}" placeholder="gpt-4o-mini">
+            </div>
+        </div>
+
+        <div id="llm-ollama-config" class="provider-config" style="display: none;">
+            <div class="form-group">
+                <label>Ollama Host</label>
+                <input type="text" id="llm-ollama-host" value="{{ config.llm.ollama_host }}" placeholder="http://localhost:11434">
+            </div>
+            <div class="form-group">
+                <label>模型名称</label>
+                <input type="text" id="llm-ollama-model" value="{{ config.llm.model }}" placeholder="llama3.2">
+                <small>如果模型不存在，将自动下载</small>
+            </div>
+        </div>
+    </div>
+
+    <div class="settings-section">
+        <h2>🔢 嵌入模型配置</h2>
+        <p class="section-desc">用于生成向量嵌入的模型</p>
+
+        <div class="form-group">
+            <label>提供商</label>
+            <select id="embedding-provider">
+                <option value="openai" {% if config.embedding.provider == 'openai' %}selected{% endif %}>OpenAI / 兼容 API</option>
+                <option value="ollama" {% if config.embedding.provider == 'ollama' %}selected{% endif %}>Ollama (本地)</option>
+            </select>
+        </div>
+
+        <div id="embedding-openai-config" class="provider-config">
+            <div class="form-group">
+                <label>API URL</label>
+                <input type="text" id="embedding-api-url" value="{{ config.embedding.api_url }}" placeholder="https://api.openai.com/v1">
+            </div>
+            <div class="form-group">
+                <label>API Key</label>
+                <input type="password" id="embedding-api-key" value="{{ config.embedding.api_key }}" placeholder="sk-...">
+            </div>
+            <div class="form-group">
+                <label>模型</label>
+                <input type="text" id="embedding-model" value="{{ config.embedding.model }}" placeholder="text-embedding-3-small">
+            </div>
+            <div class="form-group">
+                <label>向量维度</label>
+                <input type="number" id="embedding-dimensions" value="{{ config.embedding.dimensions }}" placeholder="1536">
+            </div>
+        </div>
+
+        <div id="embedding-ollama-config" class="provider-config" style="display: none;">
+            <div class="form-group">
+                <label>Ollama Host</label>
+                <input type="text" id="embedding-ollama-host" value="{{ config.embedding.ollama_host }}" placeholder="http://localhost:11434">
+            </div>
+            <div class="form-group">
+                <label>模型名称</label>
+                <input type="text" id="embedding-ollama-model" value="{{ config.embedding.ollama_model }}" placeholder="nomic-embed-text">
+                <small>推荐: nomic-embed-text, mxbai-embed-large</small>
+            </div>
+        </div>
+    </div>
+
+    <div class="settings-section">
+        <h2>💾 数据库配置</h2>
+        <p class="section-desc">LanceDB 存储路径</p>
+
+        <div class="form-group">
+            <label>数据库路径</label>
+            <input type="text" id="db-path" value="{{ config.database.path }}" placeholder="./data/lancedb">
+        </div>
+        <div class="form-group">
+            <label>表名</label>
+            <input type="text" id="db-table" value="{{ config.database.table_name }}" placeholder="memories">
+        </div>
+    </div>
+
+    <div class="settings-actions">
+        <button id="save-config-btn" class="btn-primary">保存配置</button>
+        <button id="test-config-btn" class="btn-secondary">测试连接</button>
+    </div>
+
+    <div id="test-results" class="test-results" style="display: none;">
+        <h3>测试结果</h3>
+        <div id="test-results-content"></div>
+    </div>
+
+    <div class="settings-section mcp-info">
+        <h2>📌 MCP 配置</h2>
+        <p class="section-desc">将以下配置添加到你的 Claude Desktop 或其他 MCP 客户端</p>
+
+        <div class="code-block">
+            <pre><code>{
+  "mcpServers": {
+    "simple-memory": {
+      "command": "python",
+      "args": ["-m", "simple_memory.mcp_server"],
+      "cwd": "{{ config.database.path | replace('./data/lancedb', '') or '.' }}"
+    }
+  }
+}</code></pre>
+            <button class="copy-btn" onclick="copyMcpConfig()">复制</button>
+        </div>
+
+        <p class="note">或者使用 uv 运行:</p>
+        <div class="code-block">
+            <pre><code>{
+  "mcpServers": {
+    "simple-memory": {
+      "command": "uv",
+      "args": ["run", "simple-memory-mcp"]
+    }
+  }
+}</code></pre>
+            <button class="copy-btn" onclick="copyMcpConfigUv()">复制</button>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Toggle provider configs
+    const llmProvider = document.getElementById('llm-provider');
+    const embeddingProvider = document.getElementById('embedding-provider');
+
+    llmProvider.addEventListener('change', updateLLMConfig);
+    embeddingProvider.addEventListener('change', updateEmbeddingConfig);
+
+    updateLLMConfig();
+    updateEmbeddingConfig();
+
+    function updateLLMConfig() {
+        const provider = llmProvider.value;
+        document.getElementById('llm-openai-config').style.display = provider === 'openai' ? 'block' : 'none';
+        document.getElementById('llm-ollama-config').style.display = provider === 'ollama' ? 'block' : 'none';
+    }
+
+    function updateEmbeddingConfig() {
+        const provider = embeddingProvider.value;
+        document.getElementById('embedding-openai-config').style.display = provider === 'openai' ? 'block' : 'none';
+        document.getElementById('embedding-ollama-config').style.display = provider === 'ollama' ? 'block' : 'none';
+    }
+
+    // Save config
+    document.getElementById('save-config-btn').addEventListener('click', saveConfig);
+    document.getElementById('test-config-btn').addEventListener('click', testConfig);
+});
+
+async function saveConfig() {
+    const btn = document.getElementById('save-config-btn');
+    btn.disabled = true;
+    btn.textContent = '保存中...';
+
+    const llmProvider = document.getElementById('llm-provider').value;
+    const embeddingProvider = document.getElementById('embedding-provider').value;
+
+    const config = {
+        llm: {
+            provider: llmProvider,
+            api_url: document.getElementById('llm-api-url').value,
+            api_key: document.getElementById('llm-api-key').value,
+            model: llmProvider === 'openai'
+                ? document.getElementById('llm-model').value
+                : document.getElementById('llm-ollama-model').value,
+            ollama_host: document.getElementById('llm-ollama-host').value,
+        },
+        embedding: {
+            provider: embeddingProvider,
+            api_url: document.getElementById('embedding-api-url').value,
+            api_key: document.getElementById('embedding-api-key').value,
+            model: document.getElementById('embedding-model').value,
+            ollama_host: document.getElementById('embedding-ollama-host').value,
+            ollama_model: document.getElementById('embedding-ollama-model').value,
+            dimensions: parseInt(document.getElementById('embedding-dimensions').value) || 1536,
+        },
+        database: {
+            path: document.getElementById('db-path').value,
+            table_name: document.getElementById('db-table').value,
+        }
+    };
+
+    try {
+        const response = await fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(config)
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            alert('配置已保存！请测试连接确保配置正确。');
+        } else {
+            alert('保存失败: ' + data.error);
+        }
+    } catch (error) {
+        alert('保存失败: ' + error.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '保存配置';
+    }
+}
+
+async function testConfig() {
+    const btn = document.getElementById('test-config-btn');
+    const resultsDiv = document.getElementById('test-results');
+    const resultsContent = document.getElementById('test-results-content');
+
+    btn.disabled = true;
+    btn.textContent = '测试中...';
+    resultsDiv.style.display = 'block';
+    resultsContent.innerHTML = '<div class="loading">正在测试连接...</div>';
+
+    // First save the config
+    await saveConfig();
+
+    try {
+        const response = await fetch('/api/config/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await response.json();
+
+        let html = '';
+
+        if (data.results) {
+            html += `
+                <div class="test-item ${data.results.llm.success ? 'success' : 'error'}">
+                    <strong>LLM:</strong> ${data.results.llm.success ? '✅' : '❌'} ${escapeHtml(data.results.llm.message)}
+                </div>
+                <div class="test-item ${data.results.embedding.success ? 'success' : 'error'}">
+                    <strong>嵌入模型:</strong> ${data.results.embedding.success ? '✅' : '❌'} ${escapeHtml(data.results.embedding.message)}
+                </div>
+            `;
+
+            if (data.success) {
+                html += '<div class="test-summary success">✅ 所有连接测试通过！MCP 已就绪。</div>';
+                // Reload page to update status
+                setTimeout(() => location.reload(), 1500);
+            } else {
+                html += '<div class="test-summary error">❌ 部分测试失败，请检查配置。</div>';
+            }
+        } else {
+            html = `<div class="error">测试失败: ${data.error}</div>`;
+        }
+
+        resultsContent.innerHTML = html;
+    } catch (error) {
+        resultsContent.innerHTML = `<div class="error">测试失败: ${error.message}</div>`;
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '测试连接';
+    }
+}
+
+function copyMcpConfig() {
+    const config = {
+        mcpServers: {
+            "simple-memory": {
+                command: "python",
+                args: ["-m", "simple_memory.mcp_server"]
+            }
+        }
+    };
+    navigator.clipboard.writeText(JSON.stringify(config, null, 2));
+    alert('已复制到剪贴板');
+}
+
+function copyMcpConfigUv() {
+    const config = {
+        mcpServers: {
+            "simple-memory": {
+                command: "uv",
+                args: ["run", "simple-memory-mcp"]
+            }
+        }
+    };
+    navigator.clipboard.writeText(JSON.stringify(config, null, 2));
+    alert('已复制到剪贴板');
+}
+</script>
+{% endblock %}
