@@ -93,6 +93,9 @@ def update_config_api():
         if "database" in data:
             updates["database"] = data["database"]
 
+        if "rerank" in data:
+            updates["rerank"] = data["rerank"]
+
         if "web" in data:
             updates["web"] = data["web"]
 
@@ -117,6 +120,7 @@ async def test_config_api():
         results = {
             "llm": {"success": False, "message": ""},
             "embedding": {"success": False, "message": ""},
+            "rerank": {"success": False, "message": "", "enabled": False},
         }
 
         # Test LLM
@@ -142,7 +146,38 @@ async def test_config_api():
         except Exception as e:
             results["embedding"] = {"success": False, "message": str(e)}
 
+        # Test Reranker (only if enabled)
+        if config.rerank.enabled:
+            results["rerank"]["enabled"] = True
+            try:
+                from ..reranker import get_rerank_provider
+
+                reranker = get_rerank_provider(config.rerank)
+                if reranker is None:
+                    results["rerank"] = {
+                        "success": False,
+                        "message": "Reranker not configured properly (missing API key?)",
+                        "enabled": True,
+                    }
+                else:
+                    # Test rerank with sample data (this will trigger auto-download for Ollama)
+                    test_docs = ["This is a test document.", "Another test document."]
+                    rerank_results = await reranker.rerank("test query", test_docs, top_k=2)
+                    results["rerank"] = {
+                        "success": True,
+                        "message": f"Reranker connected. Provider: {config.rerank.provider}, Model: {config.rerank.model if config.rerank.provider == 'api' else config.rerank.ollama_model}",
+                        "enabled": True,
+                    }
+            except Exception as e:
+                results["rerank"] = {"success": False, "message": str(e), "enabled": True}
+        else:
+            results["rerank"] = {"success": True, "message": "Reranker disabled", "enabled": False}
+
+        # Core services (LLM + Embedding) must succeed
         overall_success = results["llm"]["success"] and results["embedding"]["success"]
+        # If rerank is enabled, it must also succeed
+        if config.rerank.enabled:
+            overall_success = overall_success and results["rerank"]["success"]
 
         if overall_success:
             # Mark as configured
