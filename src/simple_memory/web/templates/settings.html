@@ -89,7 +89,12 @@
             <div class="form-group">
                 <label>模型名称</label>
                 <input type="text" id="embedding-ollama-model" value="{{ config.embedding.ollama_model }}" placeholder="nomic-embed-text">
-                <small>推荐: nomic-embed-text, mxbai-embed-large</small>
+                <small>推荐: nomic-embed-text (768维), mxbai-embed-large (1024维)</small>
+            </div>
+            <div class="form-group">
+                <label>向量维度 (可选)</label>
+                <input type="number" id="embedding-ollama-dimensions" value="{{ config.embedding.dimensions }}" placeholder="768">
+                <small>留空或设为0将自动检测。常见值: nomic-embed-text=768, mxbai-embed-large=1024</small>
             </div>
         </div>
     </div>
@@ -110,7 +115,7 @@
                 <label>提供商</label>
                 <select id="rerank-provider">
                     <option value="api" {% if config.rerank.provider == 'api' %}selected{% endif %}>API (Cohere/Jina等)</option>
-                    <option value="ollama" {% if config.rerank.provider == 'ollama' %}selected{% endif %}>Ollama (本地)</option>
+                    <option value="local" {% if config.rerank.provider == 'local' %}selected{% endif %}>本地模型 (CrossEncoder)</option>
                 </select>
             </div>
 
@@ -130,15 +135,21 @@
                 </div>
             </div>
 
-            <div id="rerank-ollama-config" class="provider-config" style="display: none;">
+            <div id="rerank-local-config" class="provider-config" style="display: none;">
                 <div class="form-group">
-                    <label>Ollama Host</label>
-                    <input type="text" id="rerank-ollama-host" value="{{ config.rerank.ollama_host }}" placeholder="http://localhost:11434">
+                    <label>模型名称 (HuggingFace)</label>
+                    <input type="text" id="rerank-local-model" value="{{ config.rerank.local_model }}" placeholder="BAAI/bge-reranker-base">
+                    <small>推荐: BAAI/bge-reranker-base, BAAI/bge-reranker-v2-m3, cross-encoder/ms-marco-MiniLM-L-6-v2</small>
                 </div>
                 <div class="form-group">
-                    <label>模型名称</label>
-                    <input type="text" id="rerank-ollama-model" value="{{ config.rerank.ollama_model }}" placeholder="bge-reranker-base">
-                    <small>如果模型不存在，将自动下载</small>
+                    <label>运行设备</label>
+                    <select id="rerank-device">
+                        <option value="auto" {% if config.rerank.device == 'auto' %}selected{% endif %}>自动检测</option>
+                        <option value="cpu" {% if config.rerank.device == 'cpu' %}selected{% endif %}>CPU</option>
+                        <option value="cuda" {% if config.rerank.device == 'cuda' %}selected{% endif %}>CUDA (NVIDIA GPU)</option>
+                        <option value="mps" {% if config.rerank.device == 'mps' %}selected{% endif %}>MPS (Apple Silicon)</option>
+                    </select>
+                    <small>首次使用会自动从 HuggingFace 下载模型</small>
                 </div>
             </div>
 
@@ -258,6 +269,12 @@ python -m simple_memory.mcp_server --transport sse -p 8766</code></pre>
 </div>
 
 <script>
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     // Toggle provider configs
     const llmProvider = document.getElementById('llm-provider');
@@ -295,7 +312,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function updateRerankConfig() {
         const provider = rerankProvider.value;
         document.getElementById('rerank-api-config').style.display = provider === 'api' ? 'block' : 'none';
-        document.getElementById('rerank-ollama-config').style.display = provider === 'ollama' ? 'block' : 'none';
+        document.getElementById('rerank-local-config').style.display = provider === 'local' ? 'block' : 'none';
     }
 
     // Save config
@@ -330,7 +347,9 @@ async function saveConfig() {
             model: document.getElementById('embedding-model').value,
             ollama_host: document.getElementById('embedding-ollama-host').value,
             ollama_model: document.getElementById('embedding-ollama-model').value,
-            dimensions: parseInt(document.getElementById('embedding-dimensions').value) || 1536,
+            dimensions: embeddingProvider === 'openai'
+                ? (parseInt(document.getElementById('embedding-dimensions').value) || 1536)
+                : (parseInt(document.getElementById('embedding-ollama-dimensions').value) || 0),
         },
         rerank: {
             enabled: document.getElementById('rerank-enabled').checked,
@@ -338,8 +357,8 @@ async function saveConfig() {
             api_url: document.getElementById('rerank-api-url').value,
             api_key: document.getElementById('rerank-api-key').value,
             model: document.getElementById('rerank-model').value,
-            ollama_host: document.getElementById('rerank-ollama-host').value,
-            ollama_model: document.getElementById('rerank-ollama-model').value,
+            local_model: document.getElementById('rerank-local-model').value,
+            device: document.getElementById('rerank-device').value,
             top_k: parseInt(document.getElementById('rerank-top-k').value) || 5,
         },
         search: {

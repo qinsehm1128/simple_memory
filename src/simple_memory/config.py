@@ -34,17 +34,22 @@ class EmbeddingConfig(BaseModel):
 
 
 class RerankConfig(BaseModel):
-    """Reranker model configuration (optional)."""
+    """Reranker model configuration (optional).
+
+    Supports two modes:
+    - api: Use remote reranking APIs (Cohere, Jina, etc.)
+    - local: Use local cross-encoder models via sentence-transformers
+    """
 
     enabled: bool = False
-    provider: Literal["api", "ollama"] = "api"
+    provider: Literal["api", "local"] = "api"
     # API provider (Cohere, Jina, etc.)
     api_url: str = "https://api.cohere.ai/v1/rerank"
     api_key: str = ""
     model: str = "rerank-multilingual-v3.0"
-    # Ollama specific
-    ollama_host: str = "http://localhost:11434"
-    ollama_model: str = "bge-reranker-base"
+    # Local model settings (uses sentence-transformers CrossEncoder)
+    local_model: str = "BAAI/bge-reranker-base"  # HuggingFace model name
+    device: str = "auto"  # auto, cpu, cuda, mps
     # Rerank settings
     top_k: int = 5  # Number of results to return after reranking
 

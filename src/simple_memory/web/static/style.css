@@ -569,6 +569,14 @@ button:hover:not(:disabled) {
     font-size: 0.875rem;
 }
 
+.form-group small.warning-text {
+    color: var(--warning-color);
+    background: rgba(245, 158, 11, 0.1);
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.25rem;
+    margin-top: 0.5rem;
+}
+
 .provider-config {
     margin-top: 1rem;
     padding-top: 1rem;

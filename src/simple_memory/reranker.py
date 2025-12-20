@@ -1,5 +1,6 @@
 """Reranker model implementations for Simple Memory."""
 
+import asyncio
 import logging
 from abc import ABC, abstractmethod
 from typing import List, Optional, Tuple
@@ -144,146 +145,89 @@ class APIReranker(RerankProvider):
         return sorted(results, key=lambda x: x[1], reverse=True)[:top_k]
 
 
-class OllamaReranker(RerankProvider):
-    """Ollama-based reranker with auto-download support.
+class LocalReranker(RerankProvider):
+    """Local cross-encoder reranker using sentence-transformers.
 
-    Uses embedding similarity for reranking since Ollama doesn't have native rerank API.
-    Works with embedding models like bge-reranker-base, nomic-embed-text, etc.
+    Downloads and runs cross-encoder models locally for reranking.
+    Supports models like BAAI/bge-reranker-base, cross-encoder/ms-marco-MiniLM-L-6-v2, etc.
     """
 
     def __init__(self, config: RerankConfig):
         self.config = config
-        self.host = config.ollama_host.rstrip("/")
-        self.model = config.ollama_model
+        self.model_name = config.local_model
+        self.device = config.device
         self.top_k = config.top_k
-        self._model_ready = False
+        self._model = None
+        self._model_loading = False
 
-    async def _ensure_model(self) -> None:
-        """Ensure the model is available, download if necessary."""
-        if self._model_ready:
+    def _get_device(self) -> str:
+        """Determine the best device to use."""
+        if self.device != "auto":
+            return self.device
+
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                return "cuda"
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                return "mps"
+        except ImportError:
+            pass
+
+        return "cpu"
+
+    def _load_model(self):
+        """Load the cross-encoder model."""
+        if self._model is not None:
             return
 
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            try:
-                response = await client.get(f"{self.host}/api/tags")
-                response.raise_for_status()
-                models = response.json().get("models", [])
-                model_names = [m["name"] for m in models]
+        try:
+            from sentence_transformers import CrossEncoder
+        except ImportError:
+            raise RuntimeError(
+                "sentence-transformers is required for local reranking. "
+                "Install it with: pip install sentence-transformers"
+            )
 
-                model_exists = (
-                    self.model in model_names
-                    or f"{self.model}:latest" in model_names
-                    or any(m.startswith(f"{self.model}:") for m in model_names)
-                )
+        device = self._get_device()
+        logger.info(f"Loading reranker model '{self.model_name}' on device '{device}'...")
 
-                if not model_exists:
-                    logger.info(f"Reranker model {self.model} not found, downloading...")
-                    await self._pull_model(client)
-
-                self._model_ready = True
-
-            except httpx.RequestError as e:
-                raise RuntimeError(
-                    f"Cannot connect to Ollama at {self.host}. "
-                    "Please make sure Ollama is running."
-                ) from e
-
-    async def _pull_model(self, client: httpx.AsyncClient) -> None:
-        """Pull (download) the model from Ollama."""
-        import json
-
-        logger.info(f"Pulling reranker model {self.model}...")
-
-        async with client.stream(
-            "POST",
-            f"{self.host}/api/pull",
-            json={"name": self.model},
-            timeout=600.0,
-        ) as response:
-            response.raise_for_status()
-            async for line in response.aiter_lines():
-                if line:
-                    data = json.loads(line)
-                    status = data.get("status", "")
-                    if "pulling" in status or "downloading" in status:
-                        completed = data.get("completed", 0)
-                        total = data.get("total", 0)
-                        if total > 0:
-                            progress = (completed / total) * 100
-                            logger.info(f"Download progress: {progress:.1f}%")
-
-        logger.info(f"Reranker model {self.model} downloaded successfully")
-
-    async def _get_embedding(self, client: httpx.AsyncClient, text: str) -> List[float]:
-        """Get embedding vector for text using Ollama."""
-        response = await client.post(
-            f"{self.host}/api/embed",
-            json={"model": self.model, "input": text},
-        )
-        response.raise_for_status()
-        data = response.json()
-
-        # Handle different response formats
-        embeddings = data.get("embeddings", data.get("embedding", []))
-        if embeddings and isinstance(embeddings[0], list):
-            return embeddings[0]
-        return embeddings
-
-    def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
-        """Calculate cosine similarity between two vectors."""
-        import math
-
-        if not vec1 or not vec2 or len(vec1) != len(vec2):
-            return 0.0
-
-        dot_product = sum(a * b for a, b in zip(vec1, vec2))
-        norm1 = math.sqrt(sum(a * a for a in vec1))
-        norm2 = math.sqrt(sum(b * b for b in vec2))
-
-        if norm1 == 0 or norm2 == 0:
-            return 0.0
-
-        return dot_product / (norm1 * norm2)
+        try:
+            self._model = CrossEncoder(self.model_name, device=device)
+            logger.info(f"Reranker model '{self.model_name}' loaded successfully")
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to load reranker model '{self.model_name}': {e}. "
+                "Make sure the model name is correct and you have internet access "
+                "for the first download."
+            ) from e
 
     async def rerank(
         self, query: str, documents: List[str], top_k: Optional[int] = None
     ) -> List[Tuple[int, float]]:
-        """Rerank using Ollama embeddings.
-
-        Uses embedding similarity to score document relevance to query.
-        """
+        """Rerank using local cross-encoder model."""
         if not documents:
             return []
 
-        await self._ensure_model()
         top_k = top_k or self.top_k
 
-        results = []
+        # Load model in thread pool to avoid blocking
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self._load_model)
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            try:
-                # Get query embedding
-                query_embedding = await self._get_embedding(client, query)
+        # Prepare query-document pairs
+        pairs = [[query, doc[:1000]] for doc in documents]  # Limit doc length
 
-                if not query_embedding:
-                    logger.warning("Failed to get query embedding, returning original order")
-                    return [(i, 1.0 - i * 0.01) for i in range(min(top_k, len(documents)))]
+        # Run prediction in thread pool
+        def predict():
+            scores = self._model.predict(pairs)
+            return scores
 
-                # Get document embeddings and calculate similarity
-                for idx, doc in enumerate(documents):
-                    try:
-                        doc_embedding = await self._get_embedding(client, doc[:1000])
-                        score = self._cosine_similarity(query_embedding, doc_embedding)
-                        # Normalize score to 0-1 range (cosine similarity is -1 to 1)
-                        score = (score + 1) / 2
-                        results.append((idx, score))
-                    except Exception as e:
-                        logger.warning(f"Error getting embedding for document {idx}: {e}")
-                        results.append((idx, 0.0))
+        scores = await loop.run_in_executor(None, predict)
 
-            except Exception as e:
-                logger.warning(f"Reranking failed: {e}, returning original order")
-                return [(i, 1.0 - i * 0.01) for i in range(min(top_k, len(documents)))]
+        # Create results with indices and scores
+        results = [(i, float(score)) for i, score in enumerate(scores)]
 
         # Sort by score descending and return top_k
         results.sort(key=lambda x: x[1], reverse=True)
@@ -314,7 +258,7 @@ def get_rerank_provider(config: Optional[RerankConfig] = None) -> Optional[Reran
             logger.warning("Rerank API key not configured, disabling reranker")
             return None
         return APIReranker(config)
-    elif config.provider == "ollama":
-        return OllamaReranker(config)
+    elif config.provider == "local":
+        return LocalReranker(config)
     else:
         return None
