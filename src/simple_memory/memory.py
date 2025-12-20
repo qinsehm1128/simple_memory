@@ -8,8 +8,17 @@ from .config import get_config, get_config_manager
 from .database import LanceDBManager, Memory, MemoryWithVector, get_db_manager
 from .embeddings import EmbeddingProvider, get_embedding_provider
 from .llm import LLMProvider, get_llm_provider
+from .reranker import RerankProvider, get_rerank_provider
 
 logger = logging.getLogger(__name__)
+
+
+def distance_to_similarity(distance: float) -> float:
+    """Convert distance to similarity score (0-100%)."""
+    # For cosine distance: similarity = 1 - distance/2
+    # Distance range is typically 0-2 for cosine
+    similarity = max(0.0, min(1.0, 1.0 - distance / 2.0))
+    return round(similarity * 100, 1)
 
 
 class ConfigurationError(Exception):
@@ -26,10 +35,12 @@ class MemoryManager:
         db_manager: Optional[LanceDBManager] = None,
         embedding_provider: Optional[EmbeddingProvider] = None,
         llm_provider: Optional[LLMProvider] = None,
+        rerank_provider: Optional[RerankProvider] = None,
     ):
         self._db_manager = db_manager
         self._embedding_provider = embedding_provider
         self._llm_provider = llm_provider
+        self._rerank_provider = rerank_provider
         self._initialized = False
 
     def _check_configuration(self) -> None:
@@ -61,6 +72,13 @@ class MemoryManager:
         if self._llm_provider is None:
             self._llm_provider = get_llm_provider()
         return self._llm_provider
+
+    @property
+    def reranker(self) -> Optional[RerankProvider]:
+        """Get the rerank provider (optional)."""
+        if self._rerank_provider is None:
+            self._rerank_provider = get_rerank_provider()
+        return self._rerank_provider
 
     async def initialize(self) -> None:
         """Initialize the memory system."""
@@ -201,6 +219,8 @@ class MemoryManager:
         limit: int = 10,
         user_id: Optional[str] = None,
         tags: Optional[List[str]] = None,
+        distance_threshold: float = 0.8,
+        use_rerank: bool = True,
     ) -> List[Dict[str, Any]]:
         """Search for similar memories.
 
@@ -209,6 +229,9 @@ class MemoryManager:
             limit: Maximum number of results
             user_id: Filter by user ID
             tags: Filter by tags
+            distance_threshold: Maximum distance threshold (0.0-2.0, lower = more similar)
+                               Default is 0.8 for good relevance
+            use_rerank: Whether to use reranker if available
 
         Returns:
             List of matching memories with similarity scores
@@ -218,13 +241,49 @@ class MemoryManager:
         # Generate query embedding
         query_embedding = await self.embeddings.embed(query)
 
-        # Search database
+        # Get more results for reranking if reranker is enabled
+        reranker = self.reranker if use_rerank else None
+        search_limit = limit * 3 if reranker else limit
+
+        # Search database with distance threshold
         results = self.db.search(
             query_vector=query_embedding,
-            limit=limit,
+            limit=search_limit,
+            distance_threshold=distance_threshold,
             user_id=user_id,
             tags=tags,
         )
+
+        # Add similarity scores
+        for result in results:
+            distance = result.get("_distance", 0.0)
+            result["similarity"] = distance_to_similarity(distance)
+
+        # Apply reranking if available
+        if reranker and results:
+            try:
+                documents = [
+                    r.get("processed_content") or r.get("content", "")
+                    for r in results
+                ]
+                rerank_results = await reranker.rerank(query, documents, top_k=limit)
+
+                # Reorder results based on rerank scores
+                reranked = []
+                for idx, rerank_score in rerank_results:
+                    if idx < len(results):
+                        result = results[idx].copy()
+                        result["rerank_score"] = round(rerank_score * 100, 1)
+                        reranked.append(result)
+
+                results = reranked
+                logger.info(f"Reranked {len(results)} results")
+
+            except Exception as e:
+                logger.warning(f"Reranking failed, using original results: {e}")
+                results = results[:limit]
+        else:
+            results = results[:limit]
 
         return results
 

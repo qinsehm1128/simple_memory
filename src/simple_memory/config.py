@@ -33,6 +33,22 @@ class EmbeddingConfig(BaseModel):
     dimensions: int = 1536
 
 
+class RerankConfig(BaseModel):
+    """Reranker model configuration (optional)."""
+
+    enabled: bool = False
+    provider: Literal["api", "ollama"] = "api"
+    # API provider (Cohere, Jina, etc.)
+    api_url: str = "https://api.cohere.ai/v1/rerank"
+    api_key: str = ""
+    model: str = "rerank-multilingual-v3.0"
+    # Ollama specific
+    ollama_host: str = "http://localhost:11434"
+    ollama_model: str = "bge-reranker-base"
+    # Rerank settings
+    top_k: int = 5  # Number of results to return after reranking
+
+
 class DatabaseConfig(BaseModel):
     """Database configuration."""
 
@@ -53,6 +69,7 @@ class AppConfig(BaseModel):
 
     llm: LLMConfig = Field(default_factory=LLMConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
+    rerank: RerankConfig = Field(default_factory=RerankConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     web: WebConfig = Field(default_factory=WebConfig)
     configured: bool = False
