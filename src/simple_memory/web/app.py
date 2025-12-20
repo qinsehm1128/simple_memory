@@ -163,12 +163,13 @@ async def test_config_api():
                         "enabled": True,
                     }
                 else:
-                    # Test rerank with sample data (this will trigger auto-download for Ollama)
+                    # Test rerank with sample data (this will trigger auto-download for local models)
                     test_docs = ["This is a test document.", "Another test document."]
                     rerank_results = await reranker.rerank("test query", test_docs, top_k=2)
+                    model_name = config.rerank.model if config.rerank.provider == 'api' else config.rerank.local_model
                     results["rerank"] = {
                         "success": True,
-                        "message": f"Reranker connected. Provider: {config.rerank.provider}, Model: {config.rerank.model if config.rerank.provider == 'api' else config.rerank.ollama_model}",
+                        "message": f"Reranker connected. Provider: {config.rerank.provider}, Model: {model_name}",
                         "enabled": True,
                     }
             except Exception as e:
