@@ -153,8 +153,18 @@ class LanceDBManager:
         limit: int = 10,
         user_id: Optional[str] = None,
         tags: Optional[List[str]] = None,
+        distance_threshold: Optional[float] = None,
     ) -> List[Dict[str, Any]]:
-        """Search for similar memories."""
+        """Search for similar memories.
+
+        Args:
+            query_vector: The query embedding vector
+            limit: Maximum number of results
+            user_id: Filter by user ID
+            tags: Filter by tags
+            distance_threshold: Maximum distance threshold (lower = more similar)
+                               Default is 1.0 for cosine distance
+        """
         import json
 
         table = self._get_table()
@@ -175,6 +185,10 @@ class LanceDBManager:
             query = query.where(" AND ".join(filters))
 
         results = query.to_list()
+
+        # Filter by distance threshold if specified
+        if distance_threshold is not None:
+            results = [r for r in results if r.get("_distance", float("inf")) <= distance_threshold]
 
         # Parse metadata JSON
         for result in results:

@@ -201,6 +201,7 @@ class MemoryManager:
         limit: int = 10,
         user_id: Optional[str] = None,
         tags: Optional[List[str]] = None,
+        distance_threshold: float = 0.8,
     ) -> List[Dict[str, Any]]:
         """Search for similar memories.
 
@@ -209,6 +210,8 @@ class MemoryManager:
             limit: Maximum number of results
             user_id: Filter by user ID
             tags: Filter by tags
+            distance_threshold: Maximum distance threshold (0.0-2.0, lower = more similar)
+                               Default is 0.8 for good relevance
 
         Returns:
             List of matching memories with similarity scores
@@ -218,10 +221,11 @@ class MemoryManager:
         # Generate query embedding
         query_embedding = await self.embeddings.embed(query)
 
-        # Search database
+        # Search database with distance threshold
         results = self.db.search(
             query_vector=query_embedding,
             limit=limit,
+            distance_threshold=distance_threshold,
             user_id=user_id,
             tags=tags,
         )
