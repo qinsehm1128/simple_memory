@@ -215,19 +215,36 @@ class OllamaReranker(RerankProvider):
         logger.info(f"Reranker model {self.model} downloaded successfully")
 
     async def _get_embedding(self, client: httpx.AsyncClient, text: str) -> List[float]:
-        """Get embedding vector for text using Ollama."""
+        """Get embedding vector for text using Ollama.
+
+        Tries both /api/embed (newer) and /api/embeddings (older) endpoints for compatibility.
+        """
+        # Try newer /api/embed endpoint first
+        try:
+            response = await client.post(
+                f"{self.host}/api/embed",
+                json={"model": self.model, "input": text},
+            )
+            if response.status_code == 200:
+                data = response.json()
+                embeddings = data.get("embeddings", data.get("embedding", []))
+                if embeddings and isinstance(embeddings[0], list):
+                    return embeddings[0]
+                return embeddings
+        except Exception:
+            pass
+
+        # Fallback to older /api/embeddings endpoint
         response = await client.post(
-            f"{self.host}/api/embed",
-            json={"model": self.model, "input": text},
+            f"{self.host}/api/embeddings",
+            json={"model": self.model, "prompt": text},
         )
         response.raise_for_status()
         data = response.json()
 
-        # Handle different response formats
-        embeddings = data.get("embeddings", data.get("embedding", []))
-        if embeddings and isinstance(embeddings[0], list):
-            return embeddings[0]
-        return embeddings
+        # Handle response format
+        embedding = data.get("embedding", [])
+        return embedding
 
     def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
         """Calculate cosine similarity between two vectors."""

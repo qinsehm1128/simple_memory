@@ -79,8 +79,10 @@ class OllamaEmbedding(EmbeddingProvider):
         self.config = config
         self.host = config.ollama_host.rstrip("/")
         self.model = config.ollama_model
-        self._dimensions: Optional[int] = None
+        # Use configured dimensions if available, otherwise auto-detect
+        self._dimensions: Optional[int] = config.dimensions if config.dimensions > 0 else None
         self._model_ready = False
+        self._use_legacy_api: Optional[bool] = None  # None = not determined yet
 
     async def _ensure_model(self) -> None:
         """Ensure the model is available, download if necessary."""
@@ -140,54 +142,74 @@ class OllamaEmbedding(EmbeddingProvider):
 
         logger.info(f"Model {self.model} downloaded successfully")
 
+    async def _embed_with_api(
+        self, client: httpx.AsyncClient, text_or_texts, is_batch: bool = False
+    ) -> List[float] | List[List[float]]:
+        """Try embedding with both new and legacy Ollama API."""
+        # Try new API first if we haven't determined which to use
+        if self._use_legacy_api is None or self._use_legacy_api is False:
+            try:
+                response = await client.post(
+                    f"{self.host}/api/embed",
+                    json={"model": self.model, "input": text_or_texts},
+                )
+                if response.status_code == 200:
+                    self._use_legacy_api = False
+                    data = response.json()
+                    embeddings = data.get("embeddings", [])
+                    if embeddings:
+                        if self._dimensions is None:
+                            self._dimensions = len(embeddings[0]) if embeddings else None
+                        return embeddings if is_batch else embeddings[0]
+            except Exception:
+                pass
+
+        # Fallback to legacy API
+        self._use_legacy_api = True
+        if is_batch:
+            # Legacy API doesn't support batch, so we need to do one at a time
+            results = []
+            for text in text_or_texts:
+                response = await client.post(
+                    f"{self.host}/api/embeddings",
+                    json={"model": self.model, "prompt": text},
+                )
+                response.raise_for_status()
+                data = response.json()
+                embedding = data.get("embedding", [])
+                if embedding:
+                    if self._dimensions is None:
+                        self._dimensions = len(embedding)
+                    results.append(embedding)
+            return results
+        else:
+            response = await client.post(
+                f"{self.host}/api/embeddings",
+                json={"model": self.model, "prompt": text_or_texts},
+            )
+            response.raise_for_status()
+            data = response.json()
+            embedding = data.get("embedding", [])
+            if embedding:
+                if self._dimensions is None:
+                    self._dimensions = len(embedding)
+                return embedding
+
+        raise RuntimeError("No embedding returned from Ollama")
+
     async def embed(self, text: str) -> List[float]:
         """Generate embedding for a single text."""
         await self._ensure_model()
 
         async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                f"{self.host}/api/embed",
-                json={
-                    "model": self.model,
-                    "input": text,
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-
-            embeddings = data.get("embeddings", [])
-            if embeddings:
-                embedding = embeddings[0]
-                # Cache dimensions
-                if self._dimensions is None:
-                    self._dimensions = len(embedding)
-                return embedding
-
-            raise RuntimeError("No embedding returned from Ollama")
+            return await self._embed_with_api(client, text, is_batch=False)
 
     async def embed_batch(self, texts: List[str]) -> List[List[float]]:
         """Generate embeddings for multiple texts."""
         await self._ensure_model()
 
         async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                f"{self.host}/api/embed",
-                json={
-                    "model": self.model,
-                    "input": texts,
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-
-            embeddings = data.get("embeddings", [])
-            if embeddings:
-                # Cache dimensions
-                if self._dimensions is None and len(embeddings) > 0:
-                    self._dimensions = len(embeddings[0])
-                return embeddings
-
-            raise RuntimeError("No embeddings returned from Ollama")
+            return await self._embed_with_api(client, texts, is_batch=True)
 
     def get_dimensions(self) -> int:
         """Get the embedding dimensions."""

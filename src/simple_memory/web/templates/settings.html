@@ -89,7 +89,12 @@
             <div class="form-group">
                 <label>模型名称</label>
                 <input type="text" id="embedding-ollama-model" value="{{ config.embedding.ollama_model }}" placeholder="nomic-embed-text">
-                <small>推荐: nomic-embed-text, mxbai-embed-large</small>
+                <small>推荐: nomic-embed-text (768维), mxbai-embed-large (1024维)</small>
+            </div>
+            <div class="form-group">
+                <label>向量维度 (可选)</label>
+                <input type="number" id="embedding-ollama-dimensions" value="{{ config.embedding.dimensions }}" placeholder="768">
+                <small>留空或设为0将自动检测。常见值: nomic-embed-text=768, mxbai-embed-large=1024</small>
             </div>
         </div>
     </div>
@@ -330,7 +335,9 @@ async function saveConfig() {
             model: document.getElementById('embedding-model').value,
             ollama_host: document.getElementById('embedding-ollama-host').value,
             ollama_model: document.getElementById('embedding-ollama-model').value,
-            dimensions: parseInt(document.getElementById('embedding-dimensions').value) || 1536,
+            dimensions: embeddingProvider === 'openai'
+                ? (parseInt(document.getElementById('embedding-dimensions').value) || 1536)
+                : (parseInt(document.getElementById('embedding-ollama-dimensions').value) || 0),
         },
         rerank: {
             enabled: document.getElementById('rerank-enabled').checked,
