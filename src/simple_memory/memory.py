@@ -219,8 +219,8 @@ class MemoryManager:
         limit: int = 10,
         user_id: Optional[str] = None,
         tags: Optional[List[str]] = None,
-        distance_threshold: float = 0.8,
-        min_similarity: float = 50.0,
+        distance_threshold: Optional[float] = None,
+        min_similarity: Optional[float] = None,
         use_rerank: bool = True,
     ) -> List[Dict[str, Any]]:
         """Search for similar memories.
@@ -231,15 +231,22 @@ class MemoryManager:
             user_id: Filter by user ID
             tags: Filter by tags
             distance_threshold: Maximum distance threshold (0.0-2.0, lower = more similar)
-                               Default is 0.8 for good relevance
+                               Uses config value if not specified
             min_similarity: Minimum similarity percentage (0-100) to include in results
-                           Default is 50.0 (50%)
+                           Uses config value if not specified
             use_rerank: Whether to use reranker if available
 
         Returns:
             List of matching memories with similarity scores
         """
         await self.initialize()
+
+        # Use config defaults if not specified
+        config = get_config()
+        if distance_threshold is None:
+            distance_threshold = config.search.distance_threshold
+        if min_similarity is None:
+            min_similarity = config.search.min_similarity
 
         # Generate query embedding
         query_embedding = await self.embeddings.embed(query)

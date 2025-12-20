@@ -86,6 +86,10 @@ async def list_tools() -> list[Tool]:
                         "items": {"type": "string"},
                         "description": "Filter by tags (optional)",
                     },
+                    "min_similarity": {
+                        "type": "number",
+                        "description": "Minimum similarity percentage (0-100) to include in results. Uses config default if not specified.",
+                    },
                 },
                 "required": ["query"],
             },
@@ -220,12 +224,14 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             limit = arguments.get("limit", 5)
             user_id = arguments.get("user_id")
             tags = arguments.get("tags")
+            min_similarity = arguments.get("min_similarity")
 
             results = await memory_manager.search(
                 query=query,
                 limit=limit,
                 user_id=user_id,
                 tags=tags,
+                min_similarity=min_similarity,
             )
 
             if not results:
@@ -239,7 +245,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                     "content": mem.get("processed_content") or mem.get("content"),
                     "tags": mem.get("tags", []),
                     "created_at": mem.get("created_at"),
-                    "score": mem.get("_distance"),
+                    "similarity": mem.get("similarity"),
+                    "rerank_score": mem.get("rerank_score"),
                 }
                 formatted_results.append(result)
 

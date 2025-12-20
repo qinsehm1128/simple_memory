@@ -145,7 +145,11 @@ class APIReranker(RerankProvider):
 
 
 class OllamaReranker(RerankProvider):
-    """Ollama-based reranker with auto-download support."""
+    """Ollama-based reranker with auto-download support.
+
+    Uses embedding similarity for reranking since Ollama doesn't have native rerank API.
+    Works with embedding models like bge-reranker-base, nomic-embed-text, etc.
+    """
 
     def __init__(self, config: RerankConfig):
         self.config = config
@@ -210,13 +214,43 @@ class OllamaReranker(RerankProvider):
 
         logger.info(f"Reranker model {self.model} downloaded successfully")
 
+    async def _get_embedding(self, client: httpx.AsyncClient, text: str) -> List[float]:
+        """Get embedding vector for text using Ollama."""
+        response = await client.post(
+            f"{self.host}/api/embed",
+            json={"model": self.model, "input": text},
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        # Handle different response formats
+        embeddings = data.get("embeddings", data.get("embedding", []))
+        if embeddings and isinstance(embeddings[0], list):
+            return embeddings[0]
+        return embeddings
+
+    def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
+        """Calculate cosine similarity between two vectors."""
+        import math
+
+        if not vec1 or not vec2 or len(vec1) != len(vec2):
+            return 0.0
+
+        dot_product = sum(a * b for a, b in zip(vec1, vec2))
+        norm1 = math.sqrt(sum(a * a for a in vec1))
+        norm2 = math.sqrt(sum(b * b for b in vec2))
+
+        if norm1 == 0 or norm2 == 0:
+            return 0.0
+
+        return dot_product / (norm1 * norm2)
+
     async def rerank(
         self, query: str, documents: List[str], top_k: Optional[int] = None
     ) -> List[Tuple[int, float]]:
-        """Rerank using Ollama.
+        """Rerank using Ollama embeddings.
 
-        Note: Ollama doesn't have native rerank support, so we use a workaround
-        by generating relevance scores using the model.
+        Uses embedding similarity to score document relevance to query.
         """
         if not documents:
             return []
@@ -227,43 +261,29 @@ class OllamaReranker(RerankProvider):
         results = []
 
         async with httpx.AsyncClient(timeout=120.0) as client:
-            for idx, doc in enumerate(documents):
-                # Use the model to score relevance
-                prompt = f"""Rate the relevance of the following document to the query on a scale of 0 to 1.
-Only output a single number between 0 and 1, nothing else.
+            try:
+                # Get query embedding
+                query_embedding = await self._get_embedding(client, query)
 
-Query: {query}
+                if not query_embedding:
+                    logger.warning("Failed to get query embedding, returning original order")
+                    return [(i, 1.0 - i * 0.01) for i in range(min(top_k, len(documents)))]
 
-Document: {doc[:500]}
-
-Relevance score:"""
-
-                try:
-                    response = await client.post(
-                        f"{self.host}/api/generate",
-                        json={
-                            "model": self.model,
-                            "prompt": prompt,
-                            "stream": False,
-                            "options": {"temperature": 0},
-                        },
-                    )
-                    response.raise_for_status()
-                    data = response.json()
-
-                    # Parse score from response
-                    score_text = data.get("response", "0").strip()
+                # Get document embeddings and calculate similarity
+                for idx, doc in enumerate(documents):
                     try:
-                        score = float(score_text.split()[0])
-                        score = max(0.0, min(1.0, score))  # Clamp to [0, 1]
-                    except (ValueError, IndexError):
-                        score = 0.0
+                        doc_embedding = await self._get_embedding(client, doc[:1000])
+                        score = self._cosine_similarity(query_embedding, doc_embedding)
+                        # Normalize score to 0-1 range (cosine similarity is -1 to 1)
+                        score = (score + 1) / 2
+                        results.append((idx, score))
+                    except Exception as e:
+                        logger.warning(f"Error getting embedding for document {idx}: {e}")
+                        results.append((idx, 0.0))
 
-                    results.append((idx, score))
-
-                except Exception as e:
-                    logger.warning(f"Error scoring document {idx}: {e}")
-                    results.append((idx, 0.0))
+            except Exception as e:
+                logger.warning(f"Reranking failed: {e}, returning original order")
+                return [(i, 1.0 - i * 0.01) for i in range(min(top_k, len(documents)))]
 
         # Sort by score descending and return top_k
         results.sort(key=lambda x: x[1], reverse=True)
