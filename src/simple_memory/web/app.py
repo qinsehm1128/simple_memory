@@ -190,7 +190,7 @@ async def list_memories_api():
 @app.route("/api/memories", methods=["POST"])
 @run_async
 async def add_memory_api():
-    """Add a new memory."""
+    """Add a new memory (may split into chunks if content is long)."""
     try:
         config = get_config()
         if not config.is_configured():
@@ -200,16 +200,25 @@ async def add_memory_api():
         content = data.get("content")
         user_id = data.get("user_id", "default")
         metadata = data.get("metadata", {})
+        chunk_long_text = data.get("chunk_long_text", True)
 
         if not content:
             return jsonify({"success": False, "error": "Content is required"}), 400
 
         memory_manager = get_memory_manager()
-        memory_id = await memory_manager.add_memory(
-            content=content, user_id=user_id, metadata=metadata
+        memory_ids = await memory_manager.add_memory(
+            content=content,
+            user_id=user_id,
+            metadata=metadata,
+            chunk_long_text=chunk_long_text,
         )
 
-        return jsonify({"success": True, "memory_id": memory_id})
+        return jsonify({
+            "success": True,
+            "memory_ids": memory_ids,
+            "memory_id": memory_ids[0] if memory_ids else None,  # Backwards compatibility
+            "chunked": len(memory_ids) > 1,
+        })
     except Exception as e:
         logger.exception("Error adding memory")
         return jsonify({"success": False, "error": str(e)}), 400

@@ -11,24 +11,25 @@ from .config import LLMConfig, get_config
 
 logger = logging.getLogger(__name__)
 
-# System prompt for memory processing
-MEMORY_PROCESSING_PROMPT = """You are a memory processing assistant. Your task is to:
-1. Extract key information from the given content
-2. Summarize and organize the content into clear, concise memory entries
-3. Extract relevant tags that describe the content
+# System prompt for memory processing (Chinese)
+MEMORY_PROCESSING_PROMPT = """你是一个记忆处理助手。你的任务是：
+1. 从给定内容中提取关键信息
+2. 将内容整理总结成清晰、简洁的记忆条目
+3. 提取描述内容的相关标签
 
-Return your response as a JSON object with the following structure:
+请以JSON格式返回响应，结构如下：
 {
-    "processed_content": "A clear, concise summary of the key information",
-    "tags": ["tag1", "tag2", "tag3"]
+    "processed_content": "对关键信息的清晰、简洁的中文总结",
+    "tags": ["标签1", "标签2", "标签3"]
 }
 
-Guidelines:
-- Keep the processed_content focused and factual
-- Extract 3-5 relevant tags that describe the main topics
-- Preserve important details, names, dates, and specific information
-- Make the content easy to search and retrieve later
-- Use consistent tagging conventions (lowercase, singular form)
+处理指南：
+- processed_content 应聚焦于事实，保持简洁
+- 提取3-5个描述主要主题的相关标签
+- 保留重要细节，如人名、日期、具体信息等
+- 使内容便于后续搜索和检索
+- 标签使用中文，保持简短（2-4个字）
+- 如果原文是英文，总结和标签也应使用中文
 """
 
 
@@ -78,7 +79,7 @@ class OpenAILLM(LLMProvider):
         """Process memory content and return structured data."""
         messages = [
             {"role": "system", "content": MEMORY_PROCESSING_PROMPT},
-            {"role": "user", "content": f"Process the following content:\n\n{content}"},
+            {"role": "user", "content": f"请处理以下内容：\n\n{content}"},
         ]
 
         response = await self.chat(messages)
@@ -133,7 +134,7 @@ class OllamaLLM(LLMProvider):
         """Process memory content and return structured data."""
         messages = [
             {"role": "system", "content": MEMORY_PROCESSING_PROMPT},
-            {"role": "user", "content": f"Process the following content:\n\n{content}"},
+            {"role": "user", "content": f"请处理以下内容：\n\n{content}"},
         ]
 
         response = await self.chat(messages)

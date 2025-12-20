@@ -29,9 +29,10 @@ class Memory(BaseModel):
 
 
 class MemoryWithVector(Memory):
-    """Memory with embedding vector."""
+    """Memory with embedding vectors for both processed and original content."""
 
-    vector: List[float] = Field(default_factory=list)
+    vector: List[float] = Field(default_factory=list)  # Processed content vector
+    content_vector: List[float] = Field(default_factory=list)  # Original content vector
 
 
 class LanceDBManager:
@@ -67,7 +68,8 @@ class LanceDBManager:
                 pa.field("user_id", pa.string()),
                 pa.field("created_at", pa.string()),
                 pa.field("updated_at", pa.string()),
-                pa.field("vector", pa.list_(pa.float32(), vector_dim)),
+                pa.field("vector", pa.list_(pa.float32(), vector_dim)),  # Processed content vector
+                pa.field("content_vector", pa.list_(pa.float32(), vector_dim)),  # Original content vector
             ]
         )
 
@@ -114,6 +116,7 @@ class LanceDBManager:
             "created_at": memory.created_at,
             "updated_at": memory.updated_at,
             "vector": memory.vector,
+            "content_vector": memory.content_vector,
         }
 
         table.add([data])
@@ -139,6 +142,7 @@ class LanceDBManager:
                     "created_at": memory.created_at,
                     "updated_at": memory.updated_at,
                     "vector": memory.vector,
+                    "content_vector": memory.content_vector,
                 }
             )
 
@@ -154,6 +158,7 @@ class LanceDBManager:
         user_id: Optional[str] = None,
         tags: Optional[List[str]] = None,
         distance_threshold: Optional[float] = None,
+        vector_column: str = "vector",
     ) -> List[Dict[str, Any]]:
         """Search for similar memories.
 
@@ -164,13 +169,14 @@ class LanceDBManager:
             tags: Filter by tags
             distance_threshold: Maximum distance threshold (lower = more similar)
                                Default is 1.0 for cosine distance
+            vector_column: Which vector column to search ("vector" or "content_vector")
         """
         import json
 
         table = self._get_table()
 
-        # Build query
-        query = table.search(query_vector).limit(limit)
+        # Build query - search on specified vector column
+        query = table.search(query_vector, vector_column_name=vector_column).limit(limit)
 
         # Apply filters
         filters = []
