@@ -34,7 +34,13 @@ class EmbeddingConfig(BaseModel):
 
 
 class RerankConfig(BaseModel):
-    """Reranker model configuration (optional)."""
+    """Reranker model configuration (optional).
+
+    Note: Ollama reranker uses embedding models for similarity-based reranking,
+    since Ollama doesn't have a native rerank API. Use embedding models like
+    nomic-embed-text, mxbai-embed-large, etc. DO NOT use cross-encoder models
+    like bge-reranker-base as they are not supported by Ollama's embed API.
+    """
 
     enabled: bool = False
     provider: Literal["api", "ollama"] = "api"
@@ -42,9 +48,9 @@ class RerankConfig(BaseModel):
     api_url: str = "https://api.cohere.ai/v1/rerank"
     api_key: str = ""
     model: str = "rerank-multilingual-v3.0"
-    # Ollama specific
+    # Ollama specific - must be an embedding model, not a cross-encoder
     ollama_host: str = "http://localhost:11434"
-    ollama_model: str = "bge-reranker-base"
+    ollama_model: str = "nomic-embed-text"  # Use embedding models only
     # Rerank settings
     top_k: int = 5  # Number of results to return after reranking
 

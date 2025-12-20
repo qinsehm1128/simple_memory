@@ -148,7 +148,8 @@ class OllamaReranker(RerankProvider):
     """Ollama-based reranker with auto-download support.
 
     Uses embedding similarity for reranking since Ollama doesn't have native rerank API.
-    Works with embedding models like bge-reranker-base, nomic-embed-text, etc.
+    IMPORTANT: Only use embedding models like nomic-embed-text, mxbai-embed-large, etc.
+    Cross-encoder models like bge-reranker-base are NOT supported by Ollama's embed API.
     """
 
     def __init__(self, config: RerankConfig):
@@ -157,10 +158,11 @@ class OllamaReranker(RerankProvider):
         self.model = config.ollama_model
         self.top_k = config.top_k
         self._model_ready = False
+        self._model_validated = False
 
     async def _ensure_model(self) -> None:
-        """Ensure the model is available, download if necessary."""
-        if self._model_ready:
+        """Ensure the model is available and can produce embeddings."""
+        if self._model_ready and self._model_validated:
             return
 
         async with httpx.AsyncClient(timeout=300.0) as client:
@@ -181,6 +183,28 @@ class OllamaReranker(RerankProvider):
                     await self._pull_model(client)
 
                 self._model_ready = True
+
+                # Validate model can produce embeddings
+                if not self._model_validated:
+                    logger.info(f"Validating reranker model {self.model} can produce embeddings...")
+                    try:
+                        test_embedding = await self._get_embedding(client, "test")
+                        if not test_embedding or len(test_embedding) == 0:
+                            raise RuntimeError(
+                                f"Model '{self.model}' cannot produce embeddings. "
+                                "For Ollama reranker, use embedding models like nomic-embed-text, "
+                                "mxbai-embed-large, etc. Cross-encoder models like bge-reranker-base "
+                                "are NOT supported."
+                            )
+                        self._model_validated = True
+                        logger.info(f"Reranker model {self.model} validated successfully (dims={len(test_embedding)})")
+                    except Exception as e:
+                        raise RuntimeError(
+                            f"Model '{self.model}' failed embedding validation: {e}. "
+                            "For Ollama reranker, use embedding models like nomic-embed-text, "
+                            "mxbai-embed-large, etc. Cross-encoder models like bge-reranker-base "
+                            "are NOT supported."
+                        ) from e
 
             except httpx.RequestError as e:
                 raise RuntimeError(
