@@ -33,27 +33,6 @@ class EmbeddingConfig(BaseModel):
     dimensions: int = 1536
 
 
-class RerankConfig(BaseModel):
-    """Reranker model configuration (optional).
-
-    Supports two modes:
-    - api: Use remote reranking APIs (Cohere, Jina, etc.)
-    - local: Use local cross-encoder models via sentence-transformers
-    """
-
-    enabled: bool = False
-    provider: Literal["api", "local"] = "api"
-    # API provider (Cohere, Jina, etc.)
-    api_url: str = "https://api.cohere.ai/v1/rerank"
-    api_key: str = ""
-    model: str = "rerank-multilingual-v3.0"
-    # Local model settings (uses sentence-transformers CrossEncoder)
-    local_model: str = "BAAI/bge-reranker-base"  # HuggingFace model name
-    device: str = "auto"  # auto, cpu, cuda, mps
-    # Rerank settings
-    top_k: int = 5  # Number of results to return after reranking
-
-
 class SearchConfig(BaseModel):
     """Search configuration."""
 
@@ -81,7 +60,6 @@ class AppConfig(BaseModel):
 
     llm: LLMConfig = Field(default_factory=LLMConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
-    rerank: RerankConfig = Field(default_factory=RerankConfig)
     search: SearchConfig = Field(default_factory=SearchConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     web: WebConfig = Field(default_factory=WebConfig)
