@@ -194,7 +194,7 @@ async function viewMemory(id) {
                 </div>
                 <div class="detail-section">
                     <h3>元数据</h3>
-                    <pre>${JSON.stringify(mem.metadata || {}, null, 2)}</pre>
+                    <pre>${Object.keys(mem.metadata || {}).length > 0 ? JSON.stringify(mem.metadata, null, 2) : '无'}</pre>
                 </div>
                 <div class="detail-section">
                     <h3>创建时间</h3>
