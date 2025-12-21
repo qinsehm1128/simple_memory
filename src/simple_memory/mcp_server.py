@@ -40,7 +40,7 @@ async def list_tools() -> list[Tool]:
     return [
         Tool(
             name="add_memory",
-            description="Add a new memory to the knowledge base. The memory will be processed by LLM and stored with embeddings for semantic search.",
+            description="Add a new memory to the knowledge base. The memory will be processed by LLM (summarized in Chinese with tags) and stored with dual embeddings (processed + original content) for better semantic search. Long content will be automatically chunked.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -58,13 +58,18 @@ async def list_tools() -> list[Tool]:
                         "description": "Additional metadata to store with the memory",
                         "default": {},
                     },
+                    "chunk_long_text": {
+                        "type": "boolean",
+                        "description": "Whether to split long content into chunks (default: true)",
+                        "default": True,
+                    },
                 },
                 "required": ["content"],
             },
         ),
         Tool(
             name="search_memories",
-            description="Search for relevant memories using semantic search. Returns memories similar to the query.",
+            description="Search for relevant memories using dual-vector fusion search. Searches both processed (summarized) content and original content, then fuses results for better accuracy.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -89,6 +94,11 @@ async def list_tools() -> list[Tool]:
                     "min_similarity": {
                         "type": "number",
                         "description": "Minimum similarity percentage (0-100) to include in results. Uses config default if not specified.",
+                    },
+                    "fusion_weight": {
+                        "type": "number",
+                        "description": "Weight for processed content similarity (0-1). 0 = only original content, 1 = only processed content, 0.5 = equal weight (default: 0.5)",
+                        "default": 0.5,
                     },
                 },
                 "required": ["query"],
@@ -204,20 +214,30 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             content = arguments["content"]
             user_id = arguments.get("user_id", "default")
             metadata = arguments.get("metadata", {})
+            chunk_long_text = arguments.get("chunk_long_text", True)
 
-            memory_id = await memory_manager.add_memory(
+            memory_ids = await memory_manager.add_memory(
                 content=content,
                 user_id=user_id,
                 metadata=metadata,
                 process_with_llm=True,
+                chunk_long_text=chunk_long_text,
             )
 
-            return [
-                TextContent(
-                    type="text",
-                    text=f"Memory added successfully with ID: {memory_id}",
-                )
-            ]
+            if len(memory_ids) == 1:
+                return [
+                    TextContent(
+                        type="text",
+                        text=f"Memory added successfully with ID: {memory_ids[0]}",
+                    )
+                ]
+            else:
+                return [
+                    TextContent(
+                        type="text",
+                        text=f"Memory added successfully. Content was split into {len(memory_ids)} chunks with IDs: {', '.join(memory_ids)}",
+                    )
+                ]
 
         elif name == "search_memories":
             query = arguments["query"]
@@ -225,6 +245,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             user_id = arguments.get("user_id")
             tags = arguments.get("tags")
             min_similarity = arguments.get("min_similarity")
+            fusion_weight = arguments.get("fusion_weight", 0.5)
 
             results = await memory_manager.search(
                 query=query,
@@ -232,6 +253,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 user_id=user_id,
                 tags=tags,
                 min_similarity=min_similarity,
+                fusion_weight=fusion_weight,
             )
 
             if not results:
@@ -243,10 +265,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 result = {
                     "id": mem.get("id"),
                     "content": mem.get("processed_content") or mem.get("content"),
+                    "original_content": mem.get("content"),
                     "tags": mem.get("tags", []),
                     "created_at": mem.get("created_at"),
                     "similarity": mem.get("similarity"),
-                    "rerank_score": mem.get("rerank_score"),
+                    "processed_similarity": mem.get("processed_similarity"),
+                    "content_similarity": mem.get("content_similarity"),
                 }
                 formatted_results.append(result)
 

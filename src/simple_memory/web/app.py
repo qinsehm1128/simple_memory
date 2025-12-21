@@ -93,9 +93,6 @@ def update_config_api():
         if "database" in data:
             updates["database"] = data["database"]
 
-        if "rerank" in data:
-            updates["rerank"] = data["rerank"]
-
         if "search" in data:
             updates["search"] = data["search"]
 
@@ -123,7 +120,6 @@ async def test_config_api():
         results = {
             "llm": {"success": False, "message": ""},
             "embedding": {"success": False, "message": ""},
-            "rerank": {"success": False, "message": "", "enabled": False},
         }
 
         # Test LLM
@@ -149,39 +145,8 @@ async def test_config_api():
         except Exception as e:
             results["embedding"] = {"success": False, "message": str(e)}
 
-        # Test Reranker (only if enabled)
-        if config.rerank.enabled:
-            results["rerank"]["enabled"] = True
-            try:
-                from ..reranker import get_rerank_provider
-
-                reranker = get_rerank_provider(config.rerank)
-                if reranker is None:
-                    results["rerank"] = {
-                        "success": False,
-                        "message": "Reranker not configured properly (missing API key?)",
-                        "enabled": True,
-                    }
-                else:
-                    # Test rerank with sample data (this will trigger auto-download for local models)
-                    test_docs = ["This is a test document.", "Another test document."]
-                    rerank_results = await reranker.rerank("test query", test_docs, top_k=2)
-                    model_name = config.rerank.model if config.rerank.provider == 'api' else config.rerank.local_model
-                    results["rerank"] = {
-                        "success": True,
-                        "message": f"Reranker connected. Provider: {config.rerank.provider}, Model: {model_name}",
-                        "enabled": True,
-                    }
-            except Exception as e:
-                results["rerank"] = {"success": False, "message": str(e), "enabled": True}
-        else:
-            results["rerank"] = {"success": True, "message": "Reranker disabled", "enabled": False}
-
         # Core services (LLM + Embedding) must succeed
         overall_success = results["llm"]["success"] and results["embedding"]["success"]
-        # If rerank is enabled, it must also succeed
-        if config.rerank.enabled:
-            overall_success = overall_success and results["rerank"]["success"]
 
         if overall_success:
             # Mark as configured
@@ -225,7 +190,7 @@ async def list_memories_api():
 @app.route("/api/memories", methods=["POST"])
 @run_async
 async def add_memory_api():
-    """Add a new memory."""
+    """Add a new memory (may split into chunks if content is long)."""
     try:
         config = get_config()
         if not config.is_configured():
@@ -235,16 +200,25 @@ async def add_memory_api():
         content = data.get("content")
         user_id = data.get("user_id", "default")
         metadata = data.get("metadata", {})
+        chunk_long_text = data.get("chunk_long_text", True)
 
         if not content:
             return jsonify({"success": False, "error": "Content is required"}), 400
 
         memory_manager = get_memory_manager()
-        memory_id = await memory_manager.add_memory(
-            content=content, user_id=user_id, metadata=metadata
+        memory_ids = await memory_manager.add_memory(
+            content=content,
+            user_id=user_id,
+            metadata=metadata,
+            chunk_long_text=chunk_long_text,
         )
 
-        return jsonify({"success": True, "memory_id": memory_id})
+        return jsonify({
+            "success": True,
+            "memory_ids": memory_ids,
+            "memory_id": memory_ids[0] if memory_ids else None,  # Backwards compatibility
+            "chunked": len(memory_ids) > 1,
+        })
     except Exception as e:
         logger.exception("Error adding memory")
         return jsonify({"success": False, "error": str(e)}), 400
