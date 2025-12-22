@@ -333,6 +333,29 @@ docker compose logs -f simple-memory
 docker compose build --no-cache
 ```
 
+#### CPU 兼容性要求
+
+LanceDB 需要支持 **AVX2** 或 **SSE4.2** 指令集的 CPU。如果遇到 `Illegal instruction (core dumped)` 错误：
+
+1. **检查 CPU 支持**：
+```bash
+# 检查是否支持 AVX2
+grep avx2 /proc/cpuinfo
+
+# 检查是否支持 SSE4
+grep sse4 /proc/cpuinfo
+```
+
+2. **不兼容的环境**：
+   - 部分低配 VPS（如某些 OpenVZ 虚拟化）
+   - 老旧 CPU（2013年之前）
+   - 某些 ARM 处理器
+
+3. **解决方案**：
+   - 升级到支持 AVX2 的 VPS
+   - 使用 KVM 虚拟化的 VPS
+   - 在本地支持的机器上运行
+
 ### 单机部署（非 Docker）
 
 ```bash

@@ -7,6 +7,8 @@ services:
       dockerfile: Dockerfile
     container_name: simple-memory
     restart: unless-stopped
+    # Uncomment for specific platform (e.g., older CPUs)
+    # platform: linux/amd64
     ports:
       - "8765:8765"  # Web management interface
       - "8766:8766"  # MCP SSE server
@@ -17,12 +19,16 @@ services:
       - simple-memory-config:/root/.simple_memory
     environment:
       - PYTHONUNBUFFERED=1
+      # CPU compatibility flags
+      - OPENBLAS_CORETYPE=ARMV8
+      - LANCE_DISABLE_SIMD=1
+      - OMP_NUM_THREADS=1
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8766/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 15s
 
   # Optional: Ollama for local LLM and embeddings
   # Uncomment if you want to use Ollama
