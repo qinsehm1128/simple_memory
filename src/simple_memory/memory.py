@@ -108,11 +108,14 @@ class MemoryManager:
 
     def _check_configuration(self) -> None:
         """Check if the system is properly configured."""
-        config = get_config()
+        # Force reload config to get latest settings
+        config_manager = get_config_manager()
+        config_manager._config = None  # Clear cache
+        config = config_manager.load()
+
         if not config.is_configured():
             raise ConfigurationError(
-                "System is not configured. Please configure the LLM and embedding settings "
-                "via the web interface at http://localhost:8765/settings before using the MCP."
+                "系统未配置。请通过 Web 界面配置 LLM 和嵌入模型设置：http://localhost:8765/settings"
             )
 
     @property

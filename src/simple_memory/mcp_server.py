@@ -25,11 +25,15 @@ server = Server("simple-memory")
 
 def check_configuration() -> tuple[bool, str]:
     """Check if the system is configured."""
-    config = get_config()
+    from .config import get_config_manager
+    # Force reload config to get latest settings
+    config_manager = get_config_manager()
+    config_manager._config = None  # Clear cache
+    config = config_manager.load()
+
     if not config.is_configured():
         return False, (
-            "Simple Memory is not configured. Please configure the LLM and embedding "
-            "settings via the web interface at http://localhost:8765/settings"
+            "Simple Memory 未配置。请通过 Web 界面配置 LLM 和嵌入模型设置：http://localhost:8765/settings"
         )
     return True, ""
 
