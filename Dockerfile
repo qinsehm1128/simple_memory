@@ -1,5 +1,5 @@
 # Simple Memory - Dockerfile
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 LABEL maintainer="Simple Memory"
 LABEL description="Memory MCP Server with LanceDB"
@@ -17,14 +17,24 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy project files
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
 
-# Install the package
-RUN pip install --no-cache-dir -e .
+# Install dependencies first (for better caching)
+# Use specific versions known to work
+RUN pip install --no-cache-dir \
+    lancedb>=0.6.0 \
+    pyarrow>=14.0.0 \
+    numpy>=1.24.0 \
+    && pip install --no-cache-dir -e .
+
+# Copy entrypoint script
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
 # Create data directory
 RUN mkdir -p /app/data/lancedb
@@ -33,9 +43,11 @@ RUN mkdir -p /app/data/lancedb
 RUN mkdir -p /root/.simple_memory
 
 # Expose ports
-# 8765 - Web management interface
-# 8766 - MCP SSE server
 EXPOSE 8765 8766
 
-# Default command - start both web and MCP SSE server
-CMD ["sh", "-c", "simple-memory web --host 0.0.0.0 & simple-memory serve --host 0.0.0.0 --port 8766 && wait"]
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:8766/health || exit 1
+
+# Use entrypoint script
+ENTRYPOINT ["/docker-entrypoint.sh"]

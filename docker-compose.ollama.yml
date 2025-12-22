@@ -18,14 +18,17 @@ services:
       - simple-memory-config:/root/.simple_memory
     environment:
       - PYTHONUNBUFFERED=1
+      - OPENBLAS_CORETYPE=ARMV8
+      - OMP_NUM_THREADS=1
     depends_on:
-      - ollama
+      ollama:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8766/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 15s
 
   ollama:
     image: ollama/ollama:latest
@@ -49,18 +52,19 @@ services:
     image: ollama/ollama:latest
     container_name: ollama-setup
     depends_on:
-      - ollama
+      ollama:
+        condition: service_started
     restart: "no"
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
         echo "Waiting for Ollama to be ready..."
-        sleep 10
+        sleep 15
         echo "Pulling LLM model (qwen2.5:3b)..."
-        ollama pull qwen2.5:3b
+        OLLAMA_HOST=ollama:11434 ollama pull qwen2.5:3b || echo "Failed to pull LLM model"
         echo "Pulling embedding model (nomic-embed-text)..."
-        ollama pull nomic-embed-text
-        echo "Models ready!"
+        OLLAMA_HOST=ollama:11434 ollama pull nomic-embed-text || echo "Failed to pull embedding model"
+        echo "Models setup complete!"
     environment:
       - OLLAMA_HOST=ollama:11434
 
