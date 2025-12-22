@@ -1,0 +1,69 @@
+version: '3.8'
+
+# Docker Compose with Ollama - Full local deployment
+# Usage: docker compose -f docker-compose.ollama.yml up -d
+
+services:
+  simple-memory:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: simple-memory
+    restart: unless-stopped
+    ports:
+      - "8765:8765"  # Web management interface
+      - "8766:8766"  # MCP SSE server
+    volumes:
+      - ./data:/app/data
+      - simple-memory-config:/root/.simple_memory
+    environment:
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8766/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    # Uncomment for NVIDIA GPU support
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # Auto-pull models on startup
+  ollama-setup:
+    image: ollama/ollama:latest
+    container_name: ollama-setup
+    depends_on:
+      - ollama
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Waiting for Ollama to be ready..."
+        sleep 10
+        echo "Pulling LLM model (qwen2.5:3b)..."
+        ollama pull qwen2.5:3b
+        echo "Pulling embedding model (nomic-embed-text)..."
+        ollama pull nomic-embed-text
+        echo "Models ready!"
+    environment:
+      - OLLAMA_HOST=ollama:11434
+
+volumes:
+  simple-memory-config:
+  ollama-data:
