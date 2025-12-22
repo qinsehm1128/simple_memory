@@ -2,7 +2,7 @@
 FROM python:3.11-slim-bookworm
 
 LABEL maintainer="Simple Memory"
-LABEL description="Memory MCP Server with LanceDB"
+LABEL description="Memory MCP Server with ChromaDB"
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -24,20 +24,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
 
-# Install dependencies first (for better caching)
-# Use specific versions known to work
-RUN pip install --no-cache-dir \
-    lancedb>=0.6.0 \
-    pyarrow>=14.0.0 \
-    numpy>=1.24.0 \
-    && pip install --no-cache-dir -e .
+# Install dependencies
+RUN pip install --no-cache-dir -e .
 
 # Copy entrypoint script
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
 # Create data directory
-RUN mkdir -p /app/data/lancedb
+RUN mkdir -p /app/data/chromadb
 
 # Create config directory
 RUN mkdir -p /root/.simple_memory

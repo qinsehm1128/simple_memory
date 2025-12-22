@@ -18,8 +18,6 @@ services:
       - simple-memory-config:/root/.simple_memory
     environment:
       - PYTHONUNBUFFERED=1
-      - OPENBLAS_CORETYPE=ARMV8
-      - OMP_NUM_THREADS=1
     depends_on:
       ollama:
         condition: service_started

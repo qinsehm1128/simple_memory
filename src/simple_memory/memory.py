@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from .config import get_config, get_config_manager
-from .database import LanceDBManager, Memory, MemoryWithVector, get_db_manager
+from .database import ChromaDBManager, Memory, MemoryWithVector, get_db_manager
 from .embeddings import EmbeddingProvider, get_embedding_provider
 from .llm import LLMProvider, get_llm_provider
 
@@ -97,7 +97,7 @@ class MemoryManager:
 
     def __init__(
         self,
-        db_manager: Optional[LanceDBManager] = None,
+        db_manager: Optional[ChromaDBManager] = None,
         embedding_provider: Optional[EmbeddingProvider] = None,
         llm_provider: Optional[LLMProvider] = None,
     ):
@@ -116,7 +116,7 @@ class MemoryManager:
             )
 
     @property
-    def db(self) -> LanceDBManager:
+    def db(self) -> ChromaDBManager:
         """Get the database manager."""
         if self._db_manager is None:
             self._db_manager = get_db_manager()

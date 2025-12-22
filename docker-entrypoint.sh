@@ -1,31 +1,9 @@
 #!/bin/bash
 set -e
 
-# Check CPU compatibility
-check_cpu() {
-    if grep -q avx2 /proc/cpuinfo 2>/dev/null; then
-        echo "CPU supports AVX2"
-        return 0
-    elif grep -q sse4 /proc/cpuinfo 2>/dev/null; then
-        echo "CPU supports SSE4 (may have limited performance)"
-        return 0
-    else
-        echo "WARNING: CPU may not support required instructions for LanceDB"
-        echo "If you see 'Illegal instruction' errors, your CPU is not compatible"
-        return 1
-    fi
-}
-
-# Set environment for compatibility
-export OPENBLAS_CORETYPE=${OPENBLAS_CORETYPE:-ARMV8}
-export OMP_NUM_THREADS=${OMP_NUM_THREADS:-1}
-
 echo "==================================="
 echo "Simple Memory - Starting services"
 echo "==================================="
-
-# Check CPU
-check_cpu || true
 
 # Start web interface in background
 echo "Starting Web interface on port 8765..."

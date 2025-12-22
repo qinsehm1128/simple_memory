@@ -7,7 +7,7 @@ import sys
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
-        description="Simple Memory - A memory MCP server using LanceDB",
+        description="Simple Memory - A memory MCP server using ChromaDB",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Commands:
