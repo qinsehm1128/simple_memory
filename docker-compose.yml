@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  simple-memory:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: simple-memory
+    restart: unless-stopped
+    ports:
+      - "8765:8765"  # Web management interface
+      - "8766:8766"  # MCP SSE server
+    volumes:
+      # Persist database data
+      - ./data:/app/data
+      # Persist configuration
+      - simple-memory-config:/root/.simple_memory
+    environment:
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8766/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Optional: Ollama for local LLM and embeddings
+  # Uncomment if you want to use Ollama
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: ollama
+  #   restart: unless-stopped
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama-data:/root/.ollama
+  #   # GPU support (NVIDIA)
+  #   # deploy:
+  #   #   resources:
+  #   #     reservations:
+  #   #       devices:
+  #   #         - driver: nvidia
+  #   #           count: 1
+  #   #           capabilities: [gpu]
+
+volumes:
+  simple-memory-config:
+  # ollama-data:

@@ -14,6 +14,58 @@
 
 ## 安装
 
+### 方式一：Docker 部署（推荐）
+
+最快速的部署方式，克隆代码后一键启动：
+
+```bash
+# 克隆项目
+git clone https://github.com/your-repo/simple-memory.git
+cd simple-memory
+
+# 启动服务
+docker compose up -d
+
+# 查看日志
+docker compose logs -f
+```
+
+服务启动后：
+- Web 管理界面：http://localhost:8765
+- MCP SSE 端点：http://localhost:8766/sse
+
+#### 使用 Ollama 本地模型（完全离线）
+
+```bash
+# 使用包含 Ollama 的配置启动
+docker compose -f docker-compose.ollama.yml up -d
+
+# 首次启动会自动下载模型（qwen2.5:3b 和 nomic-embed-text）
+# 可能需要几分钟时间
+```
+
+然后在 Web 设置中配置 Ollama：
+- LLM 提供商：Ollama
+- Ollama Host：`http://ollama:11434`
+- 模型：`qwen2.5:3b`
+- 嵌入模型：`nomic-embed-text`
+
+#### Docker 环境变量
+
+可以通过环境变量自定义配置：
+
+```yaml
+# docker-compose.override.yml
+version: '3.8'
+services:
+  simple-memory:
+    environment:
+      - SIMPLE_MEMORY_WEB_PORT=8765
+      - SIMPLE_MEMORY_SSE_PORT=8766
+```
+
+### 方式二：pip 安装
+
 ```bash
 # 使用 pip
 pip install -e .
@@ -262,7 +314,26 @@ python -m simple_memory.mcp_server --transport sse -p 8766
 
 ## 部署说明
 
-### 单机部署
+### Docker 部署（推荐）
+
+```bash
+# 基础部署（使用外部 API）
+docker compose up -d
+
+# 完整本地部署（包含 Ollama）
+docker compose -f docker-compose.ollama.yml up -d
+
+# 停止服务
+docker compose down
+
+# 查看日志
+docker compose logs -f simple-memory
+
+# 重新构建镜像
+docker compose build --no-cache
+```
+
+### 单机部署（非 Docker）
 
 ```bash
 # 启动 Web 管理界面
@@ -278,12 +349,16 @@ simple-memory serve -p 8766
 |------|------|------|
 | 8765 | Web 管理界面 | 配置、查看和管理记忆 |
 | 8766 | MCP SSE 服务 | 远程 MCP 客户端连接 |
+| 11434 | Ollama | 本地模型服务（可选） |
 
 ### 健康检查
 
 ```bash
 # 检查 MCP SSE 服务状态
 curl http://localhost:8766/health
+
+# Docker 容器状态
+docker compose ps
 ```
 
 ## 项目结构
@@ -304,6 +379,9 @@ simple_memory/
 │       ├── templates/  # Jinja2 模板
 │       └── static/     # CSS/JS
 ├── data/               # LanceDB 数据目录
+├── Dockerfile          # Docker 镜像构建
+├── docker-compose.yml  # Docker Compose 配置
+├── docker-compose.ollama.yml  # 包含 Ollama 的配置
 ├── pyproject.toml
 └── README.md
 ```
