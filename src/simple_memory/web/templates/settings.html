@@ -117,11 +117,11 @@
 
     <div class="settings-section">
         <h2>💾 数据库配置</h2>
-        <p class="section-desc">LanceDB 存储路径</p>
+        <p class="section-desc">ChromaDB 存储路径</p>
 
         <div class="form-group">
             <label>数据库路径</label>
-            <input type="text" id="db-path" value="{{ config.database.path }}" placeholder="./data/lancedb">
+            <input type="text" id="db-path" value="{{ config.database.path }}" placeholder="./data/chromadb">
         </div>
         <div class="form-group">
             <label>表名</label>
@@ -149,7 +149,7 @@
     "simple-memory": {
       "command": "python",
       "args": ["-m", "simple_memory.mcp_server"],
-      "cwd": "{{ config.database.path | replace('./data/lancedb', '') or '.' }}"
+      "cwd": "{{ config.database.path | replace('./data/chromadb', '') or '.' }}"
     }
   }
 }</code></pre>

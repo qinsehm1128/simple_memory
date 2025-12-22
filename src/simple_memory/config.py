@@ -43,7 +43,7 @@ class SearchConfig(BaseModel):
 class DatabaseConfig(BaseModel):
     """Database configuration."""
 
-    path: str = "./data/lancedb"
+    path: str = "./data/chromadb"
     table_name: str = "memories"
 
 

@@ -1,6 +1,6 @@
 # Simple Memory
 
-基于 LanceDB 的智能记忆仓库 MCP (Model Context Protocol) 服务器。类似于 mem0，提供记忆存储、语义搜索和 AI 整理功能。
+基于 ChromaDB 的智能记忆仓库 MCP (Model Context Protocol) 服务器。类似于 mem0，提供记忆存储、语义搜索和 AI 整理功能。
 
 ## 功能特性
 
@@ -8,7 +8,7 @@
 - **双向量语义搜索**: 同时对原始内容和处理后内容进行向量化，融合搜索提高准确性
 - **长文本自动切分**: 超长内容自动按句子边界切分，保持语义完整性
 - **MCP 集成**: 支持 stdio 和 SSE 两种传输方式，可本地或远程访问
-- **LanceDB 存储**: 使用高性能的 LanceDB 作为向量数据库
+- **ChromaDB 存储**: 使用轻量级的 ChromaDB 作为向量数据库，兼容性好
 - **Web 管理界面**: 使用 Jinja2 模板实现的 Web 界面，查看和管理记忆
 - **灵活的模型配置**: 支持 OpenAI API 和 Ollama 本地模型
 
@@ -287,7 +287,7 @@ python -m simple_memory.mcp_server --transport sse -p 8766
     "distance_threshold": 1.0
   },
   "database": {
-    "path": "./data/lancedb",
+    "path": "./data/chromadb",
     "table_name": "memories"
   },
   "web": {
@@ -333,29 +333,6 @@ docker compose logs -f simple-memory
 docker compose build --no-cache
 ```
 
-#### CPU 兼容性要求
-
-LanceDB 需要支持 **AVX2** 或 **SSE4.2** 指令集的 CPU。如果遇到 `Illegal instruction (core dumped)` 错误：
-
-1. **检查 CPU 支持**：
-```bash
-# 检查是否支持 AVX2
-grep avx2 /proc/cpuinfo
-
-# 检查是否支持 SSE4
-grep sse4 /proc/cpuinfo
-```
-
-2. **不兼容的环境**：
-   - 部分低配 VPS（如某些 OpenVZ 虚拟化）
-   - 老旧 CPU（2013年之前）
-   - 某些 ARM 处理器
-
-3. **解决方案**：
-   - 升级到支持 AVX2 的 VPS
-   - 使用 KVM 虚拟化的 VPS
-   - 在本地支持的机器上运行
-
 ### 单机部署（非 Docker）
 
 ```bash
@@ -392,7 +369,7 @@ simple_memory/
 │   ├── __init__.py
 │   ├── cli.py          # CLI 入口点
 │   ├── config.py       # 配置管理
-│   ├── database.py     # LanceDB 操作（双向量存储）
+│   ├── database.py     # ChromaDB 操作（双向量存储）
 │   ├── embeddings.py   # 嵌入模型
 │   ├── llm.py          # LLM 接口（中文提示词）
 │   ├── memory.py       # 记忆管理核心（融合搜索、文本切分）
@@ -401,7 +378,7 @@ simple_memory/
 │       ├── app.py      # Flask 应用
 │       ├── templates/  # Jinja2 模板
 │       └── static/     # CSS/JS
-├── data/               # LanceDB 数据目录
+├── data/               # ChromaDB 数据目录
 ├── Dockerfile          # Docker 镜像构建
 ├── docker-compose.yml  # Docker Compose 配置
 ├── docker-compose.ollama.yml  # 包含 Ollama 的配置
@@ -411,13 +388,13 @@ simple_memory/
 
 ## 数据迁移
 
-如果从旧版本升级，需要重建数据库以使用新的双向量功能：
+如果从 LanceDB 版本升级，需要重建数据库：
 
 ```bash
 # 备份旧数据（可选）
 mv data/lancedb data/lancedb.bak
 
-# 重新启动，系统会创建新的数据库结构
+# 重新启动，系统会创建新的 ChromaDB 数据库
 simple-memory web
 ```
 
