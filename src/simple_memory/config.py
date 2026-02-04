@@ -22,13 +22,17 @@ class LLMConfig(BaseModel):
 class EmbeddingConfig(BaseModel):
     """Embedding model configuration."""
 
-    provider: Literal["openai", "ollama"] = "openai"
+    provider: Literal["openai", "ollama", "remark"] = "openai"
     api_url: str = "https://api.openai.com/v1"
     api_key: str = ""
     model: str = "text-embedding-3-small"
     # Ollama specific
     ollama_host: str = "http://localhost:11434"
     ollama_model: str = "nomic-embed-text"
+    # Remark specific
+    remark_api_url: str = "http://localhost:8080"
+    remark_api_key: str = ""
+    remark_model: str = "remark-embed"
     # Embedding dimensions
     dimensions: int = 1536
 
@@ -43,7 +47,7 @@ class SearchConfig(BaseModel):
 class DatabaseConfig(BaseModel):
     """Database configuration."""
 
-    path: str = "./data/chromadb"
+    path: str = "./data/satoridb"
     table_name: str = "memories"
 
 
@@ -81,6 +85,9 @@ class AppConfig(BaseModel):
                 return False
         elif self.embedding.provider == "ollama":
             if not self.embedding.ollama_host:
+                return False
+        elif self.embedding.provider == "remark":
+            if not self.embedding.remark_api_url:
                 return False
 
         return True

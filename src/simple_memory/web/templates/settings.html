@@ -5,12 +5,12 @@
 {% block content %}
 <div class="page-header">
     <h1>系统设置</h1>
-    <p class="subtitle">配置 LLM 和嵌入模型</p>
+    <p class="subtitle">配置 LLM、嵌入模型和数据库</p>
 </div>
 
 <div class="settings-container">
     <div class="settings-section">
-        <h2>🤖 LLM 配置</h2>
+        <h2>LLM 配置</h2>
         <p class="section-desc">用于整理和处理记忆内容的大语言模型</p>
 
         <div class="form-group">
@@ -51,7 +51,7 @@
     </div>
 
     <div class="settings-section">
-        <h2>🔢 嵌入模型配置</h2>
+        <h2>嵌入模型配置</h2>
         <p class="section-desc">用于生成向量嵌入的模型</p>
 
         <div class="form-group">
@@ -59,6 +59,7 @@
             <select id="embedding-provider">
                 <option value="openai" {% if config.embedding.provider == 'openai' %}selected{% endif %}>OpenAI / 兼容 API</option>
                 <option value="ollama" {% if config.embedding.provider == 'ollama' %}selected{% endif %}>Ollama (本地)</option>
+                <option value="remark" {% if config.embedding.provider == 'remark' %}selected{% endif %}>Remark API</option>
             </select>
         </div>
 
@@ -97,10 +98,33 @@
                 <small>留空或设为0将自动检测。常见值: nomic-embed-text=768, mxbai-embed-large=1024</small>
             </div>
         </div>
+
+        <div id="embedding-remark-config" class="provider-config" style="display: none;">
+            <div class="form-group">
+                <label>Remark API URL</label>
+                <input type="text" id="embedding-remark-url" value="{{ config.embedding.remark_api_url }}" placeholder="http://localhost:8080">
+                <small>Remark 嵌入服务 API 地址</small>
+            </div>
+            <div class="form-group">
+                <label>API Key (可选)</label>
+                <input type="password" id="embedding-remark-key" value="{{ config.embedding.remark_api_key }}" placeholder="your-api-key">
+                <small>如果 Remark 服务需要认证，请填写</small>
+            </div>
+            <div class="form-group">
+                <label>模型名称</label>
+                <input type="text" id="embedding-remark-model" value="{{ config.embedding.remark_model }}" placeholder="remark-embed">
+                <small>Remark 嵌入模型名称</small>
+            </div>
+            <div class="form-group">
+                <label>向量维度</label>
+                <input type="number" id="embedding-remark-dimensions" value="{{ config.embedding.dimensions }}" placeholder="1024">
+                <small>Remark 模型输出的向量维度，留空将自动检测</small>
+            </div>
+        </div>
     </div>
 
     <div class="settings-section">
-        <h2>🔍 搜索配置</h2>
+        <h2>搜索配置</h2>
         <p class="section-desc">语义搜索相关设置</p>
 
         <div class="form-group">
@@ -116,12 +140,12 @@
     </div>
 
     <div class="settings-section">
-        <h2>💾 数据库配置</h2>
-        <p class="section-desc">ChromaDB 存储路径</p>
+        <h2>数据库配置</h2>
+        <p class="section-desc">SatoriDB 向量数据库存储路径</p>
 
         <div class="form-group">
             <label>数据库路径</label>
-            <input type="text" id="db-path" value="{{ config.database.path }}" placeholder="./data/chromadb">
+            <input type="text" id="db-path" value="{{ config.database.path }}" placeholder="./data/satoridb">
         </div>
         <div class="form-group">
             <label>表名</label>
@@ -139,8 +163,60 @@
         <div id="test-results-content"></div>
     </div>
 
+    <!-- Database Management Section -->
+    <div class="settings-section database-management">
+        <h2>数据库管理</h2>
+        <p class="section-desc">管理向量数据库：查看信息、重建、清空、导入导出</p>
+
+        <div class="db-info-panel">
+            <h3>数据库信息</h3>
+            <div id="db-info-content" class="db-info-grid">
+                <div class="info-loading">加载中...</div>
+            </div>
+            <button id="refresh-db-info-btn" class="btn-small">刷新信息</button>
+        </div>
+
+        <div class="db-actions-panel">
+            <h3>数据库操作</h3>
+
+            <div class="action-group">
+                <h4>重建数据库</h4>
+                <p class="action-desc">修改向量维度后需要重建数据库。可选择是否重新生成所有记忆的向量嵌入。</p>
+                <div class="form-row">
+                    <div class="form-group inline">
+                        <label>新向量维度</label>
+                        <input type="number" id="rebuild-dimensions" placeholder="当前维度" min="64" max="4096">
+                    </div>
+                    <div class="form-group inline checkbox">
+                        <label>
+                            <input type="checkbox" id="rebuild-reembed" checked>
+                            重新生成向量嵌入
+                        </label>
+                    </div>
+                </div>
+                <button id="rebuild-db-btn" class="btn-warning">重建数据库</button>
+            </div>
+
+            <div class="action-group">
+                <h4>清空数据库</h4>
+                <p class="action-desc warning-text">此操作将删除所有记忆和向量数据，不可恢复！</p>
+                <button id="clear-db-btn" class="btn-danger">清空数据库</button>
+            </div>
+
+            <div class="action-group">
+                <h4>导出/导入</h4>
+                <p class="action-desc">导出所有记忆用于备份，或从备份文件导入。</p>
+                <div class="btn-group">
+                    <button id="export-db-btn" class="btn-secondary">导出记忆</button>
+                    <button id="import-db-btn" class="btn-secondary">导入记忆</button>
+                    <input type="file" id="import-file-input" accept=".json" style="display: none;">
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="settings-section mcp-info">
-        <h2>📌 MCP 配置 (本地模式)</h2>
+        <h2>MCP 配置 (本地模式)</h2>
         <p class="section-desc">将以下配置添加到你的 Claude Desktop 或其他 MCP 客户端</p>
 
         <div class="code-block">
@@ -149,7 +225,7 @@
     "simple-memory": {
       "command": "python",
       "args": ["-m", "simple_memory.mcp_server"],
-      "cwd": "{{ config.database.path | replace('./data/chromadb', '') or '.' }}"
+      "cwd": "{{ config.database.path | replace('./data/satoridb', '') or '.' }}"
     }
   }
 }</code></pre>
@@ -171,7 +247,7 @@
     </div>
 
     <div class="settings-section mcp-info">
-        <h2>🌐 远程 MCP 配置 (SSE 模式)</h2>
+        <h2>远程 MCP 配置 (SSE 模式)</h2>
         <p class="section-desc">部署到服务器后，通过 URL 远程访问 MCP 服务</p>
 
         <h3>1. 启动 SSE 服务器</h3>
@@ -235,11 +311,23 @@ document.addEventListener('DOMContentLoaded', function() {
         const provider = embeddingProvider.value;
         document.getElementById('embedding-openai-config').style.display = provider === 'openai' ? 'block' : 'none';
         document.getElementById('embedding-ollama-config').style.display = provider === 'ollama' ? 'block' : 'none';
+        document.getElementById('embedding-remark-config').style.display = provider === 'remark' ? 'block' : 'none';
     }
 
     // Save config
     document.getElementById('save-config-btn').addEventListener('click', saveConfig);
     document.getElementById('test-config-btn').addEventListener('click', testConfig);
+
+    // Database management
+    document.getElementById('refresh-db-info-btn').addEventListener('click', loadDbInfo);
+    document.getElementById('rebuild-db-btn').addEventListener('click', rebuildDatabase);
+    document.getElementById('clear-db-btn').addEventListener('click', clearDatabase);
+    document.getElementById('export-db-btn').addEventListener('click', exportDatabase);
+    document.getElementById('import-db-btn').addEventListener('click', () => document.getElementById('import-file-input').click());
+    document.getElementById('import-file-input').addEventListener('change', importDatabase);
+
+    // Load database info on page load
+    loadDbInfo();
 });
 
 async function saveConfig() {
@@ -267,9 +355,14 @@ async function saveConfig() {
             model: document.getElementById('embedding-model').value,
             ollama_host: document.getElementById('embedding-ollama-host').value,
             ollama_model: document.getElementById('embedding-ollama-model').value,
+            remark_api_url: document.getElementById('embedding-remark-url').value,
+            remark_api_key: document.getElementById('embedding-remark-key').value,
+            remark_model: document.getElementById('embedding-remark-model').value,
             dimensions: embeddingProvider === 'openai'
                 ? (parseInt(document.getElementById('embedding-dimensions').value) || 1536)
-                : (parseInt(document.getElementById('embedding-ollama-dimensions').value) || 0),
+                : embeddingProvider === 'ollama'
+                    ? (parseInt(document.getElementById('embedding-ollama-dimensions').value) || 0)
+                    : (parseInt(document.getElementById('embedding-remark-dimensions').value) || 1024),
         },
         search: {
             min_similarity: parseFloat(document.getElementById('search-min-similarity').value) || 50,
@@ -327,19 +420,19 @@ async function testConfig() {
         if (data.results) {
             html += `
                 <div class="test-item ${data.results.llm.success ? 'success' : 'error'}">
-                    <strong>LLM:</strong> ${data.results.llm.success ? '✅' : '❌'} ${escapeHtml(data.results.llm.message)}
+                    <strong>LLM:</strong> ${data.results.llm.success ? '✓' : '✗'} ${escapeHtml(data.results.llm.message)}
                 </div>
                 <div class="test-item ${data.results.embedding.success ? 'success' : 'error'}">
-                    <strong>嵌入模型:</strong> ${data.results.embedding.success ? '✅' : '❌'} ${escapeHtml(data.results.embedding.message)}
+                    <strong>嵌入模型:</strong> ${data.results.embedding.success ? '✓' : '✗'} ${escapeHtml(data.results.embedding.message)}
                 </div>
             `;
 
             if (data.success) {
-                html += '<div class="test-summary success">✅ 所有连接测试通过！MCP 已就绪。</div>';
+                html += '<div class="test-summary success">✓ 所有连接测试通过！MCP 已就绪。</div>';
                 // Reload page to update status
                 setTimeout(() => location.reload(), 1500);
             } else {
-                html += '<div class="test-summary error">❌ 部分测试失败，请检查配置。</div>';
+                html += '<div class="test-summary error">✗ 部分测试失败，请检查配置。</div>';
             }
         } else {
             html = `<div class="error">测试失败: ${data.error}</div>`;
@@ -351,6 +444,214 @@ async function testConfig() {
     } finally {
         btn.disabled = false;
         btn.textContent = '测试连接';
+    }
+}
+
+// Database Management Functions
+
+async function loadDbInfo() {
+    const content = document.getElementById('db-info-content');
+    content.innerHTML = '<div class="info-loading">加载中...</div>';
+
+    try {
+        const response = await fetch('/api/database/info');
+        const data = await response.json();
+
+        if (data.success) {
+            const info = data.info;
+            content.innerHTML = `
+                <div class="info-item">
+                    <span class="info-label">数据库路径</span>
+                    <span class="info-value">${escapeHtml(info.path)}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">表名</span>
+                    <span class="info-value">${escapeHtml(info.table_name)}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">向量维度</span>
+                    <span class="info-value">${info.vector_dimension || '未设置'}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">记忆总数</span>
+                    <span class="info-value">${info.total_memories}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">用户数</span>
+                    <span class="info-value">${info.total_users}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">标签数</span>
+                    <span class="info-value">${info.total_tags}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">状态</span>
+                    <span class="info-value ${info.initialized ? 'status-ok' : 'status-warn'}">${info.initialized ? '已初始化' : '未初始化'}</span>
+                </div>
+            `;
+
+            // Update rebuild dimensions placeholder
+            const rebuildInput = document.getElementById('rebuild-dimensions');
+            rebuildInput.placeholder = info.vector_dimension || '当前维度';
+        } else {
+            content.innerHTML = `<div class="error">加载失败: ${data.error}</div>`;
+        }
+    } catch (error) {
+        content.innerHTML = `<div class="error">加载失败: ${error.message}</div>`;
+    }
+}
+
+async function rebuildDatabase() {
+    const dimensions = document.getElementById('rebuild-dimensions').value;
+    const reEmbed = document.getElementById('rebuild-reembed').checked;
+
+    if (!confirm(`确定要重建数据库吗？${reEmbed ? '这将重新生成所有记忆的向量嵌入，可能需要较长时间。' : '向量将被清空，需要手动重新嵌入。'}`)) {
+        return;
+    }
+
+    const btn = document.getElementById('rebuild-db-btn');
+    btn.disabled = true;
+    btn.textContent = '重建中...';
+
+    try {
+        const response = await fetch('/api/database/rebuild', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                dimensions: dimensions ? parseInt(dimensions) : null,
+                re_embed: reEmbed
+            })
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            const result = data.result;
+            let msg = `数据库重建成功！\n向量维度: ${result.vector_dimension}\n保留记忆数: ${result.memory_count}`;
+            if (result.reembedded_count !== undefined) {
+                msg += `\n重新嵌入: ${result.reembedded_count} 条`;
+            }
+            alert(msg);
+            loadDbInfo();
+        } else {
+            alert('重建失败: ' + data.error);
+        }
+    } catch (error) {
+        alert('重建失败: ' + error.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '重建数据库';
+    }
+}
+
+async function clearDatabase() {
+    if (!confirm('警告：此操作将永久删除所有记忆数据，不可恢复！\n\n确定要继续吗？')) {
+        return;
+    }
+
+    if (!confirm('再次确认：真的要清空所有数据吗？')) {
+        return;
+    }
+
+    const btn = document.getElementById('clear-db-btn');
+    btn.disabled = true;
+    btn.textContent = '清空中...';
+
+    try {
+        const response = await fetch('/api/database/clear', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ confirm: true })
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            alert(`数据库已清空！\n删除记忆数: ${data.result.memories_removed}`);
+            loadDbInfo();
+        } else {
+            alert('清空失败: ' + data.error);
+        }
+    } catch (error) {
+        alert('清空失败: ' + error.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '清空数据库';
+    }
+}
+
+async function exportDatabase() {
+    const btn = document.getElementById('export-db-btn');
+    btn.disabled = true;
+    btn.textContent = '导出中...';
+
+    try {
+        const response = await fetch('/api/database/export');
+        const data = await response.json();
+
+        if (data.success) {
+            // Create and download file
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `simple-memory-backup-${new Date().toISOString().slice(0, 10)}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            alert(`导出成功！共 ${data.count} 条记忆。`);
+        } else {
+            alert('导出失败: ' + data.error);
+        }
+    } catch (error) {
+        alert('导出失败: ' + error.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '导出记忆';
+    }
+}
+
+async function importDatabase(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const btn = document.getElementById('import-db-btn');
+    btn.disabled = true;
+    btn.textContent = '导入中...';
+
+    try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+
+        const memories = data.memories || [];
+        if (memories.length === 0) {
+            alert('文件中没有找到记忆数据');
+            return;
+        }
+
+        if (!confirm(`确定要导入 ${memories.length} 条记忆吗？这将重新生成所有向量嵌入。`)) {
+            return;
+        }
+
+        const response = await fetch('/api/database/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ memories })
+        });
+        const result = await response.json();
+
+        if (result.success) {
+            alert(`导入完成！\n成功: ${result.imported} 条\n失败: ${result.failed} 条`);
+            loadDbInfo();
+        } else {
+            alert('导入失败: ' + result.error);
+        }
+    } catch (error) {
+        alert('导入失败: ' + error.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '导入记忆';
+        event.target.value = '';  // Reset file input
     }
 }
 

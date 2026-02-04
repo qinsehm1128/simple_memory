@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "simple-memory"
-version = "0.1.0"
-description = "A memory MCP server using ChromaDB for storage and vector search"
+version = "0.2.0"
+description = "A memory MCP server using SatoriDB for storage and vector search"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
-keywords = ["mcp", "memory", "chromadb", "vector-database", "ai"]
+keywords = ["mcp", "memory", "satoridb", "vector-database", "ai", "remark"]
 authors = [
     { name = "Simple Memory Team" }
 ]
@@ -24,7 +24,6 @@ classifiers = [
 ]
 dependencies = [
     "mcp>=1.0.0",
-    "chromadb>=0.4.0",
     "flask>=3.0.0",
     "jinja2>=3.1.0",
     "httpx>=0.27.0",

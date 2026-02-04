@@ -232,6 +232,114 @@ class OllamaEmbedding(EmbeddingProvider):
         return 768
 
 
+class RemarkEmbedding(EmbeddingProvider):
+    """Remark embedding provider.
+
+    Supports Remark's embedding API for generating text embeddings.
+    The API is compatible with OpenAI-style embedding endpoints.
+    """
+
+    def __init__(self, config: EmbeddingConfig):
+        self.config = config
+        self.api_url = config.remark_api_url.rstrip("/")
+        self.api_key = config.remark_api_key
+        self.model = config.remark_model
+        self._dimensions: Optional[int] = config.dimensions if config.dimensions > 0 else None
+
+    async def embed(self, text: str) -> List[float]:
+        """Generate embedding for a single text."""
+        embeddings = await self.embed_batch([text])
+        return embeddings[0]
+
+    async def embed_batch(self, texts: List[str]) -> List[List[float]]:
+        """Generate embeddings for multiple texts.
+
+        Supports multiple API formats:
+        1. OpenAI-compatible: POST /embeddings with {"input": [...], "model": "..."}
+        2. Simple format: POST /embed with {"texts": [...]}
+        3. Alternative: POST /v1/embeddings (OpenAI v1 API)
+        """
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            # Prepare headers
+            headers = {"Content-Type": "application/json"}
+            if self.api_key:
+                headers["Authorization"] = f"Bearer {self.api_key}"
+
+            # Try OpenAI-compatible format first
+            endpoints_to_try = [
+                (f"{self.api_url}/v1/embeddings", {"input": texts, "model": self.model}),
+                (f"{self.api_url}/embeddings", {"input": texts, "model": self.model}),
+                (f"{self.api_url}/embed", {"texts": texts, "model": self.model}),
+                (f"{self.api_url}/api/embed", {"input": texts, "model": self.model}),
+            ]
+
+            last_error = None
+            for endpoint, payload in endpoints_to_try:
+                try:
+                    response = await client.post(endpoint, headers=headers, json=payload)
+
+                    if response.status_code == 200:
+                        data = response.json()
+                        embeddings = self._parse_response(data)
+                        if embeddings:
+                            # Auto-detect dimensions
+                            if self._dimensions is None and embeddings:
+                                self._dimensions = len(embeddings[0])
+                            return embeddings
+
+                except httpx.RequestError as e:
+                    last_error = e
+                    continue
+                except Exception as e:
+                    last_error = e
+                    continue
+
+            # If all attempts failed, raise the last error
+            if last_error:
+                raise RuntimeError(f"Failed to get embeddings from Remark API: {last_error}")
+            raise RuntimeError("Failed to get embeddings from Remark API: No valid response")
+
+    def _parse_response(self, data: dict) -> List[List[float]]:
+        """Parse embedding response from various API formats."""
+        # OpenAI format: {"data": [{"embedding": [...], "index": 0}, ...]}
+        if "data" in data:
+            embeddings = sorted(data["data"], key=lambda x: x.get("index", 0))
+            return [e.get("embedding", e.get("values", [])) for e in embeddings]
+
+        # Simple format: {"embeddings": [[...], [...]]}
+        if "embeddings" in data:
+            return data["embeddings"]
+
+        # Alternative: {"vectors": [[...], [...]]}
+        if "vectors" in data:
+            return data["vectors"]
+
+        # Single embedding: {"embedding": [...]}
+        if "embedding" in data:
+            return [data["embedding"]]
+
+        return []
+
+    def get_dimensions(self) -> int:
+        """Get the embedding dimensions."""
+        if self._dimensions is not None:
+            return self._dimensions
+
+        # Default dimensions for common Remark models
+        model_dimensions = {
+            "remark-embed": 1024,
+            "remark-embed-small": 512,
+            "remark-embed-large": 2048,
+        }
+
+        for model_name, dims in model_dimensions.items():
+            if model_name in self.model:
+                return dims
+
+        # Default fallback
+        return 1024
+
+
 def get_embedding_provider(config: Optional[EmbeddingConfig] = None) -> EmbeddingProvider:
     """Get the appropriate embedding provider based on configuration."""
     if config is None:
@@ -241,5 +349,7 @@ def get_embedding_provider(config: Optional[EmbeddingConfig] = None) -> Embeddin
         return OpenAIEmbedding(config)
     elif config.provider == "ollama":
         return OllamaEmbedding(config)
+    elif config.provider == "remark":
+        return RemarkEmbedding(config)
     else:
         raise ValueError(f"Unknown embedding provider: {config.provider}")
