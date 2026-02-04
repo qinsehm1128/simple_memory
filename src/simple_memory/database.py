@@ -343,6 +343,222 @@ class SatoriDBManager:
 
         return results[:limit]
 
+    def keyword_search(
+        self,
+        query: str,
+        limit: int = 10,
+        user_id: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Search memories using keyword/BM25-like scoring.
+
+        Args:
+            query: The search query string
+            limit: Maximum number of results
+            user_id: Filter by user ID
+            tags: Filter by tags
+
+        Returns:
+            List of matching memories with BM25 scores
+        """
+        if not self._initialized:
+            raise RuntimeError("Database not initialized. Call initialize() first.")
+
+        # Tokenize query
+        query_terms = self._tokenize(query.lower())
+        if not query_terms:
+            return []
+
+        # Get candidate memory IDs
+        if user_id:
+            candidate_ids = self._user_index.get(user_id, set())
+        else:
+            candidate_ids = set(self._memories.keys())
+
+        # Filter by tags if specified
+        if tags:
+            tag_matches = set()
+            for tag in tags:
+                tag_matches.update(self._tag_index.get(tag, set()))
+            candidate_ids = candidate_ids & tag_matches
+
+        # Calculate BM25-like scores
+        results = []
+        k1 = 1.5  # BM25 parameter
+        b = 0.75  # BM25 parameter
+
+        # Calculate average document length
+        total_length = sum(
+            len(self._tokenize(m.get("content", "") + " " + m.get("processed_content", "")))
+            for m in self._memories.values()
+        )
+        avg_dl = total_length / max(len(self._memories), 1)
+
+        # Calculate IDF for query terms
+        idf = {}
+        for term in query_terms:
+            doc_count = sum(
+                1 for mid in candidate_ids
+                if term in self._tokenize(
+                    self._memories.get(mid, {}).get("content", "").lower() + " " +
+                    self._memories.get(mid, {}).get("processed_content", "").lower()
+                )
+            )
+            # IDF with smoothing
+            idf[term] = np.log((len(candidate_ids) - doc_count + 0.5) / (doc_count + 0.5) + 1)
+
+        for memory_id in candidate_ids:
+            memory_data = self._memories.get(memory_id)
+            if not memory_data:
+                continue
+
+            # Combine content fields for searching
+            doc_text = (memory_data.get("content", "") + " " + memory_data.get("processed_content", "")).lower()
+            doc_terms = self._tokenize(doc_text)
+            doc_length = len(doc_terms)
+
+            # Calculate BM25 score
+            score = 0.0
+            term_freq = {}
+            for term in doc_terms:
+                term_freq[term] = term_freq.get(term, 0) + 1
+
+            for term in query_terms:
+                if term in term_freq:
+                    tf = term_freq[term]
+                    numerator = tf * (k1 + 1)
+                    denominator = tf + k1 * (1 - b + b * doc_length / max(avg_dl, 1))
+                    score += idf.get(term, 0) * numerator / denominator
+
+            if score > 0:
+                result = self._storage_to_result(memory_id, memory_data, 0.0)
+                result["_bm25_score"] = score
+                results.append(result)
+
+        # Sort by BM25 score (descending)
+        results.sort(key=lambda x: x.get("_bm25_score", 0), reverse=True)
+
+        return results[:limit]
+
+    def hybrid_search(
+        self,
+        query_vector: List[float],
+        query_text: str,
+        limit: int = 10,
+        user_id: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        distance_threshold: Optional[float] = None,
+        alpha: float = 0.5,
+        initial_limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """Hybrid search combining vector similarity and keyword matching.
+
+        Args:
+            query_vector: The query embedding vector
+            query_text: The original query text for keyword search
+            limit: Maximum number of results to return
+            user_id: Filter by user ID
+            tags: Filter by tags
+            distance_threshold: Maximum distance threshold for vector search
+            alpha: Weight for vector search (0-1), keyword search weight is (1-alpha)
+            initial_limit: Number of candidates to retrieve before fusion
+
+        Returns:
+            List of memories with combined scores
+        """
+        if not self._initialized:
+            raise RuntimeError("Database not initialized. Call initialize() first.")
+
+        # Get vector search results
+        vector_results = self.search(
+            query_vector=query_vector,
+            limit=initial_limit,
+            user_id=user_id,
+            tags=tags,
+            distance_threshold=distance_threshold,
+        )
+
+        # Get keyword search results
+        keyword_results = self.keyword_search(
+            query=query_text,
+            limit=initial_limit,
+            user_id=user_id,
+            tags=tags,
+        )
+
+        # Normalize scores and combine using Reciprocal Rank Fusion (RRF)
+        k = 60  # RRF constant
+
+        # Build score maps
+        vector_scores = {}
+        for rank, result in enumerate(vector_results):
+            memory_id = result["id"]
+            # Convert distance to similarity score (0-1)
+            similarity = max(0, 1 - result.get("_distance", 0) / 2)
+            vector_scores[memory_id] = {
+                "rank": rank,
+                "score": similarity,
+                "result": result,
+            }
+
+        keyword_scores = {}
+        max_bm25 = max((r.get("_bm25_score", 0) for r in keyword_results), default=1)
+        for rank, result in enumerate(keyword_results):
+            memory_id = result["id"]
+            # Normalize BM25 score to 0-1
+            normalized_score = result.get("_bm25_score", 0) / max(max_bm25, 1)
+            keyword_scores[memory_id] = {
+                "rank": rank,
+                "score": normalized_score,
+                "result": result,
+            }
+
+        # Combine results using RRF
+        all_ids = set(vector_scores.keys()) | set(keyword_scores.keys())
+        combined_results = []
+
+        for memory_id in all_ids:
+            vec_data = vector_scores.get(memory_id, {"rank": initial_limit, "score": 0})
+            kw_data = keyword_scores.get(memory_id, {"rank": initial_limit, "score": 0})
+
+            # RRF score
+            rrf_score = (
+                alpha * (1 / (k + vec_data["rank"])) +
+                (1 - alpha) * (1 / (k + kw_data["rank"]))
+            )
+
+            # Weighted combination of similarity scores
+            combined_score = alpha * vec_data["score"] + (1 - alpha) * kw_data["score"]
+
+            # Use result from vector search if available, otherwise from keyword
+            result = vec_data.get("result") or kw_data.get("result")
+            if result:
+                result["_hybrid_score"] = combined_score
+                result["_rrf_score"] = rrf_score
+                result["_vector_similarity"] = vec_data["score"]
+                result["_keyword_score"] = kw_data["score"]
+                combined_results.append(result)
+
+        # Sort by RRF score (descending)
+        combined_results.sort(key=lambda x: x.get("_rrf_score", 0), reverse=True)
+
+        return combined_results[:limit]
+
+    def _tokenize(self, text: str) -> List[str]:
+        """Simple tokenizer for keyword search."""
+        import re
+        # Split on non-alphanumeric characters, keep Chinese characters
+        tokens = re.findall(r'[\w\u4e00-\u9fff]+', text.lower())
+        # Filter out very short tokens and common stop words
+        stop_words = {'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
+                      'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will',
+                      'would', 'could', 'should', 'may', 'might', 'must', 'shall',
+                      'of', 'to', 'in', 'for', 'on', 'with', 'at', 'by', 'from',
+                      'as', 'into', 'through', 'during', 'before', 'after',
+                      'above', 'below', 'between', 'under', 'and', 'but', 'or',
+                      'not', 'no', 'this', 'that', 'these', 'those', 'it', 'its'}
+        return [t for t in tokens if len(t) > 1 and t not in stop_words]
+
     def get_memory(self, memory_id: str) -> Optional[Dict[str, Any]]:
         """Get a memory by ID."""
         if not self._initialized:

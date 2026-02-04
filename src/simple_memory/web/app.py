@@ -97,6 +97,12 @@ def update_config_api():
         if "search" in data:
             updates["search"] = data["search"]
 
+        if "rerank" in data:
+            updates["rerank"] = data["rerank"]
+
+        if "code_index" in data:
+            updates["code_index"] = data["code_index"]
+
         if "web" in data:
             updates["web"] = data["web"]
 
@@ -122,6 +128,7 @@ async def test_config_api():
         results = {
             "llm": {"success": False, "message": ""},
             "embedding": {"success": False, "message": ""},
+            "rerank": {"success": False, "message": "", "enabled": config.rerank.enabled},
         }
 
         # Test LLM
@@ -146,6 +153,35 @@ async def test_config_api():
             }
         except Exception as e:
             results["embedding"] = {"success": False, "message": str(e)}
+
+        # Test Rerank (optional)
+        if config.rerank.enabled:
+            try:
+                from ..rerank import get_rerank_provider
+
+                reranker = get_rerank_provider()
+                if reranker:
+                    # Simple test with two documents
+                    rerank_results = await reranker.rerank(
+                        query="test query",
+                        documents=["test document 1", "test document 2"],
+                        top_k=2,
+                    )
+                    results["rerank"] = {
+                        "success": True,
+                        "message": f"Rerank 连接成功: {reranker.get_name()}",
+                        "enabled": True,
+                    }
+                else:
+                    results["rerank"] = {
+                        "success": False,
+                        "message": "Rerank provider not configured",
+                        "enabled": True,
+                    }
+            except Exception as e:
+                results["rerank"] = {"success": False, "message": str(e), "enabled": True}
+        else:
+            results["rerank"] = {"success": True, "message": "Rerank 已禁用", "enabled": False}
 
         # Core services (LLM + Embedding) must succeed
         overall_success = results["llm"]["success"] and results["embedding"]["success"]
@@ -269,7 +305,7 @@ async def delete_memory_api(memory_id: str):
 @app.route("/api/memories/search", methods=["POST"])
 @run_async
 async def search_memories_api():
-    """Search memories."""
+    """Search memories with optional hybrid search and reranking."""
     try:
         config = get_config()
         if not config.is_configured():
@@ -280,20 +316,36 @@ async def search_memories_api():
         limit = data.get("limit", 10)
         user_id = data.get("user_id")
         tags = data.get("tags")
+        use_hybrid = data.get("use_hybrid")  # None = use config default
+        hybrid_alpha = data.get("hybrid_alpha")
+        use_rerank = data.get("use_rerank")  # None = use config default
+        min_similarity = data.get("min_similarity")
 
         if not query:
             return jsonify({"success": False, "error": "查询内容不能为空"}), 400
 
         memory_manager = get_memory_manager()
         results = await memory_manager.search(
-            query=query, limit=limit, user_id=user_id, tags=tags
+            query=query,
+            limit=limit,
+            user_id=user_id,
+            tags=tags,
+            use_hybrid=use_hybrid,
+            hybrid_alpha=hybrid_alpha,
+            use_rerank=use_rerank,
+            min_similarity=min_similarity,
         )
 
         # Remove vector from response
         for mem in results:
             mem.pop("vector", None)
 
-        return jsonify({"success": True, "results": results})
+        return jsonify({
+            "success": True,
+            "results": results,
+            "search_mode": "hybrid" if (use_hybrid or config.search.hybrid_enabled) else "vector",
+            "rerank_enabled": use_rerank if use_rerank is not None else config.rerank.enabled,
+        })
     except Exception as e:
         logger.exception("Error searching memories")
         return jsonify({"success": False, "error": str(e)}), 400
@@ -509,6 +561,187 @@ async def import_database_api():
         })
     except Exception as e:
         logger.exception("Error importing database")
+        return jsonify({"success": False, "error": str(e)}), 400
+
+
+# Code Indexing APIs
+
+
+@app.route("/api/code/index/file", methods=["POST"])
+@run_async
+async def index_code_file_api():
+    """Index a single code file."""
+    try:
+        config = get_config()
+        if not config.is_configured():
+            return jsonify({"success": False, "error": "系统未配置"}), 400
+
+        if not config.code_index.enabled:
+            return jsonify({"success": False, "error": "代码索引功能未启用"}), 400
+
+        data = request.json
+        file_path = data.get("file_path")
+        user_id = data.get("user_id", "default")
+        force = data.get("force", False)
+
+        if not file_path:
+            return jsonify({"success": False, "error": "文件路径不能为空"}), 400
+
+        memory_manager = get_memory_manager()
+        memory_ids = await memory_manager.index_code_file(
+            file_path=file_path,
+            user_id=user_id,
+            force=force,
+        )
+
+        return jsonify({
+            "success": True,
+            "file_path": file_path,
+            "chunks_indexed": len(memory_ids),
+            "memory_ids": memory_ids,
+        })
+    except Exception as e:
+        logger.exception("Error indexing code file")
+        return jsonify({"success": False, "error": str(e)}), 400
+
+
+@app.route("/api/code/index/directory", methods=["POST"])
+@run_async
+async def index_code_directory_api():
+    """Index all code files in a directory."""
+    try:
+        config = get_config()
+        if not config.is_configured():
+            return jsonify({"success": False, "error": "系统未配置"}), 400
+
+        if not config.code_index.enabled:
+            return jsonify({"success": False, "error": "代码索引功能未启用"}), 400
+
+        data = request.json
+        directory = data.get("directory")
+        user_id = data.get("user_id", "default")
+        recursive = data.get("recursive", True)
+        force = data.get("force", False)
+
+        if not directory:
+            return jsonify({"success": False, "error": "目录路径不能为空"}), 400
+
+        memory_manager = get_memory_manager()
+        stats = await memory_manager.index_code_directory(
+            directory=directory,
+            user_id=user_id,
+            recursive=recursive,
+            force=force,
+        )
+
+        return jsonify({
+            "success": True,
+            "directory": directory,
+            "stats": stats,
+        })
+    except Exception as e:
+        logger.exception("Error indexing code directory")
+        return jsonify({"success": False, "error": str(e)}), 400
+
+
+@app.route("/api/code/update", methods=["POST"])
+@run_async
+async def update_code_files_api():
+    """Update only changed code files in a directory (incremental update)."""
+    try:
+        config = get_config()
+        if not config.is_configured():
+            return jsonify({"success": False, "error": "系统未配置"}), 400
+
+        if not config.code_index.enabled:
+            return jsonify({"success": False, "error": "代码索引功能未启用"}), 400
+
+        data = request.json
+        directory = data.get("directory")
+        user_id = data.get("user_id", "default")
+        recursive = data.get("recursive", True)
+
+        if not directory:
+            return jsonify({"success": False, "error": "目录路径不能为空"}), 400
+
+        memory_manager = get_memory_manager()
+        stats = await memory_manager.update_code_files(
+            directory=directory,
+            user_id=user_id,
+            recursive=recursive,
+        )
+
+        return jsonify({
+            "success": True,
+            "directory": directory,
+            "stats": stats,
+        })
+    except Exception as e:
+        logger.exception("Error updating code files")
+        return jsonify({"success": False, "error": str(e)}), 400
+
+
+@app.route("/api/code/search", methods=["POST"])
+@run_async
+async def search_code_api():
+    """Search for code in indexed files."""
+    try:
+        config = get_config()
+        if not config.is_configured():
+            return jsonify({"success": False, "error": "系统未配置"}), 400
+
+        data = request.json
+        query = data.get("query")
+        limit = data.get("limit", 10)
+        language = data.get("language")
+        file_path_pattern = data.get("file_path_pattern")
+        chunk_type = data.get("chunk_type")  # function, class, method, etc.
+
+        if not query:
+            return jsonify({"success": False, "error": "查询内容不能为空"}), 400
+
+        memory_manager = get_memory_manager()
+        results = await memory_manager.search_code(
+            query=query,
+            limit=limit,
+            language=language,
+            file_path_pattern=file_path_pattern,
+            chunk_type=chunk_type,
+        )
+
+        # Remove vector from response
+        for mem in results:
+            mem.pop("vector", None)
+
+        return jsonify({
+            "success": True,
+            "results": results,
+            "count": len(results),
+        })
+    except Exception as e:
+        logger.exception("Error searching code")
+        return jsonify({"success": False, "error": str(e)}), 400
+
+
+@app.route("/api/code/indexed-files", methods=["GET"])
+@run_async
+async def get_indexed_files_api():
+    """Get information about indexed code files."""
+    try:
+        config = get_config()
+        if not config.is_configured():
+            return jsonify({"success": True, "files": {}})
+
+        memory_manager = get_memory_manager()
+        files = memory_manager.get_indexed_files()
+
+        return jsonify({
+            "success": True,
+            "files": files,
+            "count": len(files),
+        })
+    except Exception as e:
+        logger.exception("Error getting indexed files")
         return jsonify({"success": False, "error": str(e)}), 400
 
 

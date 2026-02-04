@@ -9,6 +9,13 @@ from .config import get_config, get_config_manager
 from .database import SatoriDBManager, Memory, MemoryWithVector, get_db_manager
 from .embeddings import EmbeddingProvider, get_embedding_provider
 from .llm import LLMProvider, get_llm_provider
+from .rerank import RerankProvider, get_rerank_provider
+from .code_index import (
+    CodeIndexer,
+    CodeChunk,
+    create_code_memory_content,
+    create_code_metadata,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -100,10 +107,14 @@ class MemoryManager:
         db_manager: Optional[SatoriDBManager] = None,
         embedding_provider: Optional[EmbeddingProvider] = None,
         llm_provider: Optional[LLMProvider] = None,
+        rerank_provider: Optional[RerankProvider] = None,
+        code_indexer: Optional[CodeIndexer] = None,
     ):
         self._db_manager = db_manager
         self._embedding_provider = embedding_provider
         self._llm_provider = llm_provider
+        self._rerank_provider = rerank_provider
+        self._code_indexer = code_indexer
         self._initialized = False
 
     def _check_configuration(self) -> None:
@@ -138,6 +149,20 @@ class MemoryManager:
         if self._llm_provider is None:
             self._llm_provider = get_llm_provider()
         return self._llm_provider
+
+    @property
+    def reranker(self) -> Optional[RerankProvider]:
+        """Get the rerank provider (if configured)."""
+        if self._rerank_provider is None:
+            self._rerank_provider = get_rerank_provider()
+        return self._rerank_provider
+
+    @property
+    def code_indexer(self) -> CodeIndexer:
+        """Get the code indexer."""
+        if self._code_indexer is None:
+            self._code_indexer = CodeIndexer()
+        return self._code_indexer
 
     async def initialize(self) -> None:
         """Initialize the memory system."""
@@ -339,11 +364,15 @@ class MemoryManager:
         distance_threshold: Optional[float] = None,
         min_similarity: Optional[float] = None,
         fusion_weight: float = 0.5,
+        use_hybrid: Optional[bool] = None,
+        hybrid_alpha: Optional[float] = None,
+        use_rerank: Optional[bool] = None,
     ) -> List[Dict[str, Any]]:
         """Search for similar memories using dual-vector fusion.
 
         Searches both processed content and original content vectors,
-        then fuses the results by averaging similarity scores.
+        then fuses the results by averaging similarity scores. Optionally
+        uses hybrid search (vector + keyword) and reranking.
 
         Args:
             query: Search query
@@ -357,6 +386,9 @@ class MemoryManager:
             fusion_weight: Weight for processed content similarity (0-1).
                           0 = only use original content, 1 = only use processed content
                           Default 0.5 = equal weight for both
+            use_hybrid: Enable hybrid search (vector + keyword). Uses config value if not specified
+            hybrid_alpha: Weight for vector search in hybrid mode (0-1). Uses config value if not specified
+            use_rerank: Enable reranking of results. Uses config value if not specified
 
         Returns:
             List of matching memories with fused similarity scores
@@ -369,17 +401,66 @@ class MemoryManager:
             distance_threshold = config.search.distance_threshold
         if min_similarity is None:
             min_similarity = config.search.min_similarity
+        if use_hybrid is None:
+            use_hybrid = config.search.hybrid_enabled
+        if hybrid_alpha is None:
+            hybrid_alpha = config.search.hybrid_alpha
+        if use_rerank is None:
+            use_rerank = config.rerank.enabled
 
         # Generate query embedding
         query_embedding = await self.embeddings.embed(query)
 
-        # Search both vector columns with more results for fusion
-        search_limit = limit * 3  # Get more results for better fusion
+        # Determine initial search limit
+        initial_limit = config.search.initial_limit if use_rerank else limit * 3
 
+        if use_hybrid:
+            # Use hybrid search combining vector and keyword
+            fused_results = await self._hybrid_search(
+                query=query,
+                query_embedding=query_embedding,
+                limit=initial_limit,
+                user_id=user_id,
+                tags=tags,
+                distance_threshold=distance_threshold,
+                min_similarity=min_similarity,
+                hybrid_alpha=hybrid_alpha,
+            )
+        else:
+            # Use dual-vector fusion search
+            fused_results = await self._dual_vector_search(
+                query_embedding=query_embedding,
+                limit=initial_limit,
+                user_id=user_id,
+                tags=tags,
+                distance_threshold=distance_threshold,
+                min_similarity=min_similarity,
+                fusion_weight=fusion_weight,
+            )
+
+        # Apply reranking if enabled and reranker is available
+        if use_rerank and self.reranker and fused_results:
+            fused_results = await self._rerank_results(query, fused_results, limit)
+        else:
+            fused_results = fused_results[:limit]
+
+        return fused_results
+
+    async def _dual_vector_search(
+        self,
+        query_embedding: List[float],
+        limit: int,
+        user_id: Optional[str],
+        tags: Optional[List[str]],
+        distance_threshold: float,
+        min_similarity: float,
+        fusion_weight: float,
+    ) -> List[Dict[str, Any]]:
+        """Perform dual-vector fusion search."""
         # Search processed content vector
         processed_results = self.db.search(
             query_vector=query_embedding,
-            limit=search_limit,
+            limit=limit,
             distance_threshold=distance_threshold,
             user_id=user_id,
             tags=tags,
@@ -389,7 +470,7 @@ class MemoryManager:
         # Search original content vector
         content_results = self.db.search(
             query_vector=query_embedding,
-            limit=search_limit,
+            limit=limit,
             distance_threshold=distance_threshold,
             user_id=user_id,
             tags=tags,
@@ -451,7 +532,88 @@ class MemoryManager:
         # Sort by fused similarity (highest first)
         fused_results.sort(key=lambda x: x.get("similarity", 0), reverse=True)
 
-        return fused_results[:limit]
+        return fused_results
+
+    async def _hybrid_search(
+        self,
+        query: str,
+        query_embedding: List[float],
+        limit: int,
+        user_id: Optional[str],
+        tags: Optional[List[str]],
+        distance_threshold: float,
+        min_similarity: float,
+        hybrid_alpha: float,
+    ) -> List[Dict[str, Any]]:
+        """Perform hybrid search combining vector and keyword matching."""
+        # Use database hybrid search
+        results = self.db.hybrid_search(
+            query_vector=query_embedding,
+            query_text=query,
+            limit=limit,
+            user_id=user_id,
+            tags=tags,
+            distance_threshold=distance_threshold,
+            alpha=hybrid_alpha,
+            initial_limit=limit * 2,
+        )
+
+        # Convert to similarity format
+        fused_results = []
+        for result in results:
+            result_copy = result.copy()
+            # Calculate similarity from hybrid score
+            hybrid_score = result.get("_hybrid_score", 0)
+            similarity = round(hybrid_score * 100, 1)
+            result_copy["similarity"] = similarity
+            result_copy["vector_similarity"] = round(result.get("_vector_similarity", 0) * 100, 1)
+            result_copy["keyword_score"] = round(result.get("_keyword_score", 0) * 100, 1)
+
+            if similarity >= min_similarity:
+                fused_results.append(result_copy)
+
+        return fused_results
+
+    async def _rerank_results(
+        self,
+        query: str,
+        results: List[Dict[str, Any]],
+        limit: int,
+    ) -> List[Dict[str, Any]]:
+        """Rerank search results using the reranker."""
+        if not results:
+            return results
+
+        try:
+            # Extract document texts for reranking
+            documents = [
+                r.get("processed_content") or r.get("content", "")
+                for r in results
+            ]
+
+            # Get rerank scores
+            config = get_config()
+            top_k = min(limit, config.rerank.top_k)
+            rerank_results = await self.reranker.rerank(
+                query=query,
+                documents=documents,
+                top_k=top_k,
+            )
+
+            # Reorder results based on rerank scores
+            reranked = []
+            for rr in rerank_results:
+                if rr.index < len(results):
+                    result = results[rr.index].copy()
+                    result["rerank_score"] = round(rr.score * 100, 1)
+                    reranked.append(result)
+
+            logger.info(f"Reranked {len(results)} results to {len(reranked)} results")
+            return reranked
+
+        except Exception as e:
+            logger.warning(f"Reranking failed, returning original results: {e}")
+            return results[:limit]
 
     async def get_memory(self, memory_id: str) -> Optional[Dict[str, Any]]:
         """Get a specific memory by ID."""
@@ -518,6 +680,285 @@ class MemoryManager:
         """Get all unique tags."""
         await self.initialize()
         return self.db.get_all_tags()
+
+    # ========== Code Indexing Methods ==========
+
+    async def index_code_file(
+        self,
+        file_path: str,
+        user_id: str = "default",
+        force: bool = False,
+    ) -> List[str]:
+        """Index a code file and store its chunks as memories.
+
+        Args:
+            file_path: Path to the code file
+            user_id: User identifier
+            force: Force re-indexing even if file hasn't changed
+
+        Returns:
+            List of memory IDs for the indexed chunks
+        """
+        await self.initialize()
+
+        # Check if file should be indexed
+        if not self.code_indexer.should_index_file(file_path):
+            logger.info(f"Skipping file (not indexable): {file_path}")
+            return []
+
+        # Check if re-indexing is needed
+        if not force and not self.code_indexer.needs_reindex(file_path):
+            logger.info(f"Skipping file (not changed): {file_path}")
+            return []
+
+        # Parse and index the file
+        chunks = self.code_indexer.index_file(file_path)
+        if not chunks:
+            return []
+
+        # Delete existing memories for this file
+        await self._delete_code_memories(file_path)
+
+        # Create memories from chunks
+        memory_ids = []
+        for chunk in chunks:
+            content = create_code_memory_content(chunk)
+            metadata = create_code_metadata(chunk)
+
+            # Add memory without LLM processing (code should be indexed as-is)
+            ids = await self.add_memory(
+                content=content,
+                user_id=user_id,
+                metadata=metadata,
+                process_with_llm=False,  # Don't process code with LLM
+                chunk_long_text=False,  # Already chunked
+            )
+            memory_ids.extend(ids)
+
+        logger.info(f"Indexed file {file_path}: {len(memory_ids)} chunks")
+        return memory_ids
+
+    async def index_code_directory(
+        self,
+        directory: str,
+        user_id: str = "default",
+        recursive: bool = True,
+        force: bool = False,
+    ) -> Dict[str, Any]:
+        """Index all code files in a directory.
+
+        Args:
+            directory: Path to the directory
+            user_id: User identifier
+            recursive: Whether to recursively index subdirectories
+            force: Force re-indexing even if files haven't changed
+
+        Returns:
+            Dictionary with indexing statistics
+        """
+        await self.initialize()
+
+        stats = {
+            "files_indexed": 0,
+            "files_skipped": 0,
+            "total_chunks": 0,
+            "errors": [],
+        }
+
+        for file_path, chunks in self.code_indexer.index_directory(directory, recursive):
+            try:
+                if not force and not self.code_indexer.needs_reindex(file_path):
+                    stats["files_skipped"] += 1
+                    continue
+
+                # Delete existing memories for this file
+                await self._delete_code_memories(file_path)
+
+                # Store chunks as memories
+                for chunk in chunks:
+                    content = create_code_memory_content(chunk)
+                    metadata = create_code_metadata(chunk)
+
+                    await self.add_memory(
+                        content=content,
+                        user_id=user_id,
+                        metadata=metadata,
+                        process_with_llm=False,
+                        chunk_long_text=False,
+                    )
+                    stats["total_chunks"] += 1
+
+                stats["files_indexed"] += 1
+
+            except Exception as e:
+                logger.error(f"Error indexing {file_path}: {e}")
+                stats["errors"].append({"file": file_path, "error": str(e)})
+
+        logger.info(
+            f"Directory indexing complete: {stats['files_indexed']} files, "
+            f"{stats['total_chunks']} chunks, {len(stats['errors'])} errors"
+        )
+        return stats
+
+    async def update_code_files(
+        self,
+        directory: str,
+        user_id: str = "default",
+        recursive: bool = True,
+    ) -> Dict[str, Any]:
+        """Update only changed code files in a directory.
+
+        This performs incremental updates - only re-indexes files that have
+        changed since the last indexing.
+
+        Args:
+            directory: Path to the directory
+            user_id: User identifier
+            recursive: Whether to recursively check subdirectories
+
+        Returns:
+            Dictionary with update statistics
+        """
+        await self.initialize()
+
+        changed_files = self.code_indexer.get_changed_files(directory)
+
+        stats = {
+            "files_checked": 0,
+            "files_updated": 0,
+            "total_chunks": 0,
+            "errors": [],
+        }
+
+        for file_path in changed_files:
+            try:
+                stats["files_checked"] += 1
+
+                # Delete existing memories for this file
+                deleted_count = await self._delete_code_memories(file_path)
+
+                # Re-index the file
+                chunks = self.code_indexer.index_file(file_path)
+
+                for chunk in chunks:
+                    content = create_code_memory_content(chunk)
+                    metadata = create_code_metadata(chunk)
+
+                    await self.add_memory(
+                        content=content,
+                        user_id=user_id,
+                        metadata=metadata,
+                        process_with_llm=False,
+                        chunk_long_text=False,
+                    )
+                    stats["total_chunks"] += 1
+
+                stats["files_updated"] += 1
+                logger.info(f"Updated file: {file_path} ({len(chunks)} chunks)")
+
+            except Exception as e:
+                logger.error(f"Error updating {file_path}: {e}")
+                stats["errors"].append({"file": file_path, "error": str(e)})
+
+        logger.info(
+            f"Update complete: {stats['files_updated']} files updated, "
+            f"{stats['total_chunks']} chunks"
+        )
+        return stats
+
+    async def _delete_code_memories(self, file_path: str) -> int:
+        """Delete all memories associated with a code file.
+
+        Args:
+            file_path: Path to the code file
+
+        Returns:
+            Number of memories deleted
+        """
+        # Get all memories and filter by file_path in metadata
+        memories = await self.get_all_memories(limit=10000)
+        deleted_count = 0
+
+        for memory in memories:
+            metadata = memory.get("metadata", {})
+            if metadata.get("type") == "code" and metadata.get("file_path") == file_path:
+                if await self.delete_memory(memory["id"]):
+                    deleted_count += 1
+
+        if deleted_count > 0:
+            logger.info(f"Deleted {deleted_count} existing chunks for {file_path}")
+
+        return deleted_count
+
+    async def search_code(
+        self,
+        query: str,
+        limit: int = 10,
+        language: Optional[str] = None,
+        file_path_pattern: Optional[str] = None,
+        chunk_type: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Search for code in indexed files.
+
+        Args:
+            query: Search query
+            limit: Maximum number of results
+            language: Filter by programming language
+            file_path_pattern: Filter by file path pattern
+            chunk_type: Filter by chunk type (function, class, etc.)
+
+        Returns:
+            List of matching code chunks
+        """
+        await self.initialize()
+
+        # Perform regular search
+        results = await self.search(query, limit=limit * 3)
+
+        # Filter for code type
+        code_results = []
+        for result in results:
+            metadata = result.get("metadata", {})
+            if metadata.get("type") != "code":
+                continue
+
+            # Filter by language
+            if language and metadata.get("language") != language:
+                continue
+
+            # Filter by file path pattern
+            if file_path_pattern:
+                import fnmatch
+                if not fnmatch.fnmatch(metadata.get("file_path", ""), file_path_pattern):
+                    continue
+
+            # Filter by chunk type
+            if chunk_type and metadata.get("chunk_type") != chunk_type:
+                continue
+
+            code_results.append(result)
+
+            if len(code_results) >= limit:
+                break
+
+        return code_results
+
+    def get_indexed_files(self) -> Dict[str, Any]:
+        """Get information about indexed code files.
+
+        Returns:
+            Dictionary with file path -> file info
+        """
+        return {
+            path: {
+                "hash": info.hash,
+                "size": info.size,
+                "language": info.language,
+                "chunk_count": info.chunk_count,
+                "indexed_at": info.indexed_at,
+            }
+            for path, info in self.code_indexer.get_indexed_files().items()
+        }
 
 
 # Global memory manager instance
