@@ -34,6 +34,7 @@
             <div class="form-group">
                 <label>鉴权方式</label>
                 <select id="llm-auth-type">
+                    <option value="direct" {% if config.llm.auth_type == 'direct' %}selected{% endif %}>直接携带 (Authorization: xxx)</option>
                     <option value="bearer" {% if config.llm.auth_type == 'bearer' %}selected{% endif %}>Bearer Token (Authorization: Bearer xxx)</option>
                     <option value="api_key" {% if config.llm.auth_type == 'api_key' %}selected{% endif %}>API Key Header (api-key: xxx)</option>
                     <option value="custom" {% if config.llm.auth_type == 'custom' %}selected{% endif %}>自定义 Header</option>
@@ -89,6 +90,7 @@
             <div class="form-group">
                 <label>鉴权方式</label>
                 <select id="embedding-auth-type">
+                    <option value="direct" {% if config.embedding.auth_type == 'direct' %}selected{% endif %}>直接携带</option>
                     <option value="bearer" {% if config.embedding.auth_type == 'bearer' %}selected{% endif %}>Bearer Token</option>
                     <option value="api_key" {% if config.embedding.auth_type == 'api_key' %}selected{% endif %}>API Key Header</option>
                     <option value="custom" {% if config.embedding.auth_type == 'custom' %}selected{% endif %}>自定义 Header</option>

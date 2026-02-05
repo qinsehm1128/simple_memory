@@ -67,6 +67,9 @@ class OpenAILLM(LLMProvider):
 
         if self.auth_type == "bearer":
             headers["Authorization"] = f"Bearer {self.api_key}"
+        elif self.auth_type == "direct":
+            # 直接携带密钥，不带 Bearer 前缀
+            headers["Authorization"] = self.api_key
         elif self.auth_type == "api_key":
             headers["api-key"] = self.api_key
         elif self.auth_type == "custom":

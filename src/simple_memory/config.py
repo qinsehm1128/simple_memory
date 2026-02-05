@@ -15,8 +15,13 @@ class LLMConfig(BaseModel):
     api_url: str = "https://api.openai.com/v1"
     api_key: str = ""
     model: str = "gpt-4o-mini"
-    # Authentication type: bearer, api_key, custom, none
-    auth_type: Literal["bearer", "api_key", "custom", "none"] = "bearer"
+    # Authentication type: bearer, direct, api_key, custom, none
+    # bearer: Authorization: Bearer xxx
+    # direct: Authorization: xxx (直接携带密钥，不带 Bearer)
+    # api_key: api-key: xxx
+    # custom: 自定义 header
+    # none: 无鉴权
+    auth_type: Literal["bearer", "direct", "api_key", "custom", "none"] = "direct"
     # Custom header name (used when auth_type is "custom")
     auth_header: str = "Authorization"
     # Ollama specific
@@ -30,8 +35,8 @@ class EmbeddingConfig(BaseModel):
     api_url: str = "https://api.openai.com/v1"
     api_key: str = ""
     model: str = "text-embedding-3-small"
-    # Authentication type: bearer, api_key, custom, none
-    auth_type: Literal["bearer", "api_key", "custom", "none"] = "bearer"
+    # Authentication type: bearer, direct, api_key, custom, none
+    auth_type: Literal["bearer", "direct", "api_key", "custom", "none"] = "direct"
     # Custom header name (used when auth_type is "custom")
     auth_header: str = "Authorization"
     # Ollama specific
