@@ -5,27 +5,42 @@
 {% block content %}
 <div class="page-header">
     <h1>Simple Memory</h1>
-    <p class="subtitle">基于 ChromaDB 的智能记忆仓库</p>
+    <p class="subtitle">智能记忆管理系统</p>
 </div>
 
 <div class="dashboard">
     <div class="stats-grid">
         <div class="stat-card">
-            <div class="stat-icon">📚</div>
+            <div class="stat-icon-box">
+                <svg class="stat-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+                </svg>
+            </div>
             <div class="stat-content">
                 <div class="stat-value" id="total-memories">-</div>
-                <div class="stat-label">总记忆数</div>
+                <div class="stat-label">记忆总数</div>
             </div>
         </div>
         <div class="stat-card">
-            <div class="stat-icon">🏷️</div>
+            <div class="stat-icon-box">
+                <svg class="stat-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path>
+                    <line x1="7" y1="7" x2="7.01" y2="7"></line>
+                </svg>
+            </div>
             <div class="stat-content">
                 <div class="stat-value" id="total-tags">-</div>
-                <div class="stat-label">标签数</div>
+                <div class="stat-label">标签数量</div>
             </div>
         </div>
         <div class="stat-card">
-            <div class="stat-icon">⚙️</div>
+            <div class="stat-icon-box">
+                <svg class="stat-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                </svg>
+            </div>
             <div class="stat-content">
                 <div class="stat-value" id="config-status">
                     {% if config.is_configured() %}
@@ -41,43 +56,66 @@
 
     {% if not config.is_configured() %}
     <div class="alert alert-warning">
-        <h3>⚠️ 系统未配置</h3>
-        <p>请先前往 <a href="/settings">设置页面</a> 配置 LLM 和嵌入模型，才能使用 MCP 服务。</p>
+        <h3>系统未配置</h3>
+        <p>请先前往 <a href="/settings">设置页面</a> 配置 LLM 和嵌入模型，才能使用记忆服务。</p>
     </div>
     {% endif %}
 
     <div class="feature-grid">
         <div class="feature-card">
-            <h3>🧠 智能记忆</h3>
-            <p>使用 LLM 自动整理和提取关键信息，生成结构化的记忆条目。</p>
+            <h3>智能处理</h3>
+            <p>使用 LLM 自动整理和提取关键信息，生成结构化的记忆条目</p>
         </div>
         <div class="feature-card">
-            <h3>🔍 语义搜索</h3>
-            <p>基于向量嵌入的语义搜索，找到最相关的记忆内容。</p>
+            <h3>语义检索</h3>
+            <p>基于向量嵌入的语义搜索，支持混合检索和重排序</p>
         </div>
         <div class="feature-card">
-            <h3>🔌 MCP 集成</h3>
-            <p>通过 MCP 协议与 Claude 等 AI 助手无缝集成。</p>
+            <h3>MCP 协议</h3>
+            <p>通过 MCP 协议与 AI 助手无缝集成，支持本地和远程模式</p>
         </div>
         <div class="feature-card">
-            <h3>💾 ChromaDB 存储</h3>
-            <p>使用轻量级的 ChromaDB 作为向量数据库，兼容性好。</p>
+            <h3>代码索引</h3>
+            <p>支持多语言代码文件索引，智能提取函数和类结构</p>
         </div>
     </div>
 
     <div class="quick-search">
         <h2>快速搜索</h2>
+        <div class="search-options">
+            <div class="search-mode-group">
+                <label class="search-option">
+                    <input type="radio" name="search-mode" value="auto" checked>
+                    <span>自动</span>
+                </label>
+                <label class="search-option">
+                    <input type="radio" name="search-mode" value="vector">
+                    <span>向量检索</span>
+                </label>
+                <label class="search-option">
+                    <input type="radio" name="search-mode" value="hybrid">
+                    <span>混合检索</span>
+                </label>
+            </div>
+            <div class="search-extra-options">
+                <label class="search-option checkbox">
+                    <input type="checkbox" id="use-rerank" {% if config.rerank.enabled %}checked{% endif %}>
+                    <span>启用重排序</span>
+                </label>
+            </div>
+        </div>
         <div class="search-box">
             <input type="text" id="search-input" placeholder="输入关键词搜索记忆..." {% if not config.is_configured() %}disabled{% endif %}>
             <button id="search-btn" {% if not config.is_configured() %}disabled{% endif %}>搜索</button>
         </div>
+        <div id="search-info" class="search-info" style="display: none;"></div>
         <div id="search-results" class="search-results"></div>
     </div>
 
     <div class="quick-add">
-        <h2>快速添加记忆</h2>
+        <h2>快速添加</h2>
         <div class="add-memory-form">
-            <textarea id="memory-content" placeholder="输入要记住的内容..." rows="4" {% if not config.is_configured() %}disabled{% endif %}></textarea>
+            <textarea id="memory-content" placeholder="输入要记录的内容..." rows="4" {% if not config.is_configured() %}disabled{% endif %}></textarea>
             <button id="add-memory-btn" {% if not config.is_configured() %}disabled{% endif %}>添加记忆</button>
         </div>
         <div id="add-result" class="add-result"></div>
@@ -85,7 +123,19 @@
 </div>
 
 <script>
-// Helper function to get similarity class based on score
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function formatDate(dateStr) {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('zh-CN', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
 function getSimilarityClass(similarity) {
     if (similarity >= 70) return 'similarity-high';
     if (similarity >= 50) return 'similarity-medium';
@@ -93,13 +143,13 @@ function getSimilarityClass(similarity) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    // Load stats
     loadStats();
 
-    // Search functionality
     const searchInput = document.getElementById('search-input');
     const searchBtn = document.getElementById('search-btn');
     const searchResults = document.getElementById('search-results');
+    const searchInfo = document.getElementById('search-info');
+    const useRerank = document.getElementById('use-rerank');
 
     searchBtn.addEventListener('click', performSearch);
     searchInput.addEventListener('keypress', function(e) {
@@ -111,38 +161,90 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!query) return;
 
         searchResults.innerHTML = '<div class="loading">搜索中...</div>';
+        searchInfo.style.display = 'none';
+
+        const searchMode = document.querySelector('input[name="search-mode"]:checked').value;
+        const rerankEnabled = useRerank.checked;
 
         try {
+            const requestBody = {
+                query,
+                limit: 5
+            };
+
+            if (searchMode === 'vector') {
+                requestBody.use_hybrid = false;
+            } else if (searchMode === 'hybrid') {
+                requestBody.use_hybrid = true;
+            }
+
+            requestBody.use_rerank = rerankEnabled;
+
             const response = await fetch('/api/memories/search', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query, limit: 5 })
+                body: JSON.stringify(requestBody)
             });
             const data = await response.json();
 
             if (data.success && data.results.length > 0) {
-                searchResults.innerHTML = data.results.map(mem => `
-                    <div class="memory-card">
-                        <div class="memory-header">
-                            <span class="similarity-badge ${getSimilarityClass(mem.similarity)}">${mem.similarity || 0}% 相似</span>
-                            ${mem.rerank_score ? `<span class="rerank-badge">${mem.rerank_score}% 重排</span>` : ''}
+                // 显示搜索信息
+                const modeText = data.search_mode === 'hybrid' ? '混合检索' : '向量检索';
+                const rerankText = data.rerank_enabled ? '，已重排序' : '';
+                searchInfo.innerHTML = `<span class="search-mode-info">检索模式: ${modeText}${rerankText}</span> <span class="result-count">找到 ${data.results.length} 条结果</span>`;
+                searchInfo.style.display = 'flex';
+
+                searchResults.innerHTML = data.results.map(mem => {
+                    const similarityScore = mem.similarity || 0;
+                    const rerankScore = mem.rerank_score;
+                    const vectorSim = mem.vector_similarity || mem.processed_similarity;
+                    const keywordScore = mem.keyword_score;
+
+                    let scoreHtml = `<span class="score-badge ${getSimilarityClass(similarityScore)}">${similarityScore.toFixed(1)}%</span>`;
+
+                    if (rerankScore !== undefined) {
+                        scoreHtml = `<span class="score-badge rerank-score">${rerankScore.toFixed(1)}%</span>`;
+                    }
+
+                    let detailScores = '';
+                    if (vectorSim !== undefined || keywordScore !== undefined) {
+                        detailScores = '<div class="score-details">';
+                        if (vectorSim !== undefined) {
+                            detailScores += `<span class="detail-score">向量: ${vectorSim.toFixed(1)}%</span>`;
+                        }
+                        if (keywordScore !== undefined) {
+                            detailScores += `<span class="detail-score">关键词: ${keywordScore.toFixed(1)}%</span>`;
+                        }
+                        detailScores += '</div>';
+                    }
+
+                    return `
+                        <div class="memory-card">
+                            <div class="memory-header">
+                                <div class="memory-scores">
+                                    ${scoreHtml}
+                                    ${detailScores}
+                                </div>
+                            </div>
+                            <div class="memory-content">${escapeHtml(mem.processed_content || mem.content)}</div>
+                            <div class="memory-meta">
+                                <span class="memory-tags">${(mem.tags || []).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}</span>
+                                <span class="memory-date">${formatDate(mem.created_at)}</span>
+                            </div>
                         </div>
-                        <div class="memory-content">${escapeHtml(mem.processed_content || mem.content)}</div>
-                        <div class="memory-meta">
-                            <span class="memory-tags">${(mem.tags || []).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}</span>
-                            <span class="memory-date">${formatDate(mem.created_at)}</span>
-                        </div>
-                    </div>
-                `).join('');
+                    `;
+                }).join('');
             } else {
+                searchInfo.style.display = 'none';
                 searchResults.innerHTML = '<div class="no-results">没有找到相关记忆</div>';
             }
         } catch (error) {
+            searchInfo.style.display = 'none';
             searchResults.innerHTML = `<div class="error">搜索失败: ${error.message}</div>`;
         }
     }
 
-    // Add memory functionality
+    // 添加记忆功能
     const memoryContent = document.getElementById('memory-content');
     const addMemoryBtn = document.getElementById('add-memory-btn');
     const addResult = document.getElementById('add-result');
@@ -153,7 +255,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const content = memoryContent.value.trim();
         if (!content) return;
 
-        addResult.innerHTML = '<div class="loading">正在处理并添加记忆...</div>';
+        addResult.innerHTML = '<div class="loading">正在处理...</div>';
         addMemoryBtn.disabled = true;
 
         try {
@@ -165,7 +267,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const data = await response.json();
 
             if (data.success) {
-                addResult.innerHTML = `<div class="success">记忆添加成功! ID: ${data.memory_id}</div>`;
+                addResult.innerHTML = `<div class="success">添加成功</div>`;
                 memoryContent.value = '';
                 loadStats();
             } else {

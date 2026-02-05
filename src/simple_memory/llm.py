@@ -55,16 +55,31 @@ class OpenAILLM(LLMProvider):
         self.api_url = config.api_url.rstrip("/")
         self.api_key = config.api_key
         self.model = config.model
+        self.auth_type = getattr(config, 'auth_type', 'bearer')
+        self.auth_header = getattr(config, 'auth_header', 'Authorization')
+
+    def _get_headers(self) -> dict:
+        """Get request headers based on auth type."""
+        headers = {"Content-Type": "application/json"}
+
+        if not self.api_key or self.auth_type == "none":
+            return headers
+
+        if self.auth_type == "bearer":
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        elif self.auth_type == "api_key":
+            headers["api-key"] = self.api_key
+        elif self.auth_type == "custom":
+            headers[self.auth_header] = self.api_key
+
+        return headers
 
     async def chat(self, messages: List[dict]) -> str:
         """Send chat messages and get response."""
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(
                 f"{self.api_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
+                headers=self._get_headers(),
                 json={
                     "model": self.model,
                     "messages": messages,

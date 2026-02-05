@@ -40,6 +40,24 @@ class OpenAIEmbedding(EmbeddingProvider):
         self.api_key = config.api_key
         self.model = config.model
         self.dimensions = config.dimensions
+        self.auth_type = getattr(config, 'auth_type', 'bearer')
+        self.auth_header = getattr(config, 'auth_header', 'Authorization')
+
+    def _get_headers(self) -> dict:
+        """Get request headers based on auth type."""
+        headers = {"Content-Type": "application/json"}
+
+        if not self.api_key or self.auth_type == "none":
+            return headers
+
+        if self.auth_type == "bearer":
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        elif self.auth_type == "api_key":
+            headers["api-key"] = self.api_key
+        elif self.auth_type == "custom":
+            headers[self.auth_header] = self.api_key
+
+        return headers
 
     async def embed(self, text: str) -> List[float]:
         """Generate embedding for a single text."""
@@ -51,10 +69,7 @@ class OpenAIEmbedding(EmbeddingProvider):
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
                 f"{self.api_url}/embeddings",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
+                headers=self._get_headers(),
                 json={
                     "input": texts,
                     "model": self.model,

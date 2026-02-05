@@ -32,6 +32,20 @@
                 <input type="password" id="llm-api-key" value="{{ config.llm.api_key }}" placeholder="sk-...">
             </div>
             <div class="form-group">
+                <label>鉴权方式</label>
+                <select id="llm-auth-type">
+                    <option value="bearer" {% if config.llm.auth_type == 'bearer' %}selected{% endif %}>Bearer Token (Authorization: Bearer xxx)</option>
+                    <option value="api_key" {% if config.llm.auth_type == 'api_key' %}selected{% endif %}>API Key Header (api-key: xxx)</option>
+                    <option value="custom" {% if config.llm.auth_type == 'custom' %}selected{% endif %}>自定义 Header</option>
+                    <option value="none" {% if config.llm.auth_type == 'none' %}selected{% endif %}>无鉴权</option>
+                </select>
+                <small>选择 API 鉴权方式，Azure 使用 api-key</small>
+            </div>
+            <div class="form-group" id="llm-auth-header-group" style="display: none;">
+                <label>自定义 Header 名称</label>
+                <input type="text" id="llm-auth-header" value="{{ config.llm.auth_header }}" placeholder="Authorization">
+            </div>
+            <div class="form-group">
                 <label>模型</label>
                 <input type="text" id="llm-model" value="{{ config.llm.model }}" placeholder="gpt-4o-mini">
             </div>
@@ -71,6 +85,19 @@
             <div class="form-group">
                 <label>API Key</label>
                 <input type="password" id="embedding-api-key" value="{{ config.embedding.api_key }}" placeholder="sk-...">
+            </div>
+            <div class="form-group">
+                <label>鉴权方式</label>
+                <select id="embedding-auth-type">
+                    <option value="bearer" {% if config.embedding.auth_type == 'bearer' %}selected{% endif %}>Bearer Token</option>
+                    <option value="api_key" {% if config.embedding.auth_type == 'api_key' %}selected{% endif %}>API Key Header</option>
+                    <option value="custom" {% if config.embedding.auth_type == 'custom' %}selected{% endif %}>自定义 Header</option>
+                    <option value="none" {% if config.embedding.auth_type == 'none' %}selected{% endif %}>无鉴权</option>
+                </select>
+            </div>
+            <div class="form-group" id="embedding-auth-header-group" style="display: none;">
+                <label>自定义 Header 名称</label>
+                <input type="text" id="embedding-auth-header" value="{{ config.embedding.auth_header }}" placeholder="Authorization">
             </div>
             <div class="form-group">
                 <label>模型</label>
@@ -434,16 +461,22 @@ document.addEventListener('DOMContentLoaded', function() {
     const embeddingProvider = document.getElementById('embedding-provider');
     const rerankEnabled = document.getElementById('rerank-enabled');
     const codeIndexEnabled = document.getElementById('code-index-enabled');
+    const llmAuthType = document.getElementById('llm-auth-type');
+    const embeddingAuthType = document.getElementById('embedding-auth-type');
 
     llmProvider.addEventListener('change', updateLLMConfig);
     embeddingProvider.addEventListener('change', updateEmbeddingConfig);
     rerankEnabled.addEventListener('change', updateRerankConfig);
     codeIndexEnabled.addEventListener('change', updateCodeIndexConfig);
+    llmAuthType.addEventListener('change', updateLLMAuthHeader);
+    embeddingAuthType.addEventListener('change', updateEmbeddingAuthHeader);
 
     updateLLMConfig();
     updateEmbeddingConfig();
     updateRerankConfig();
     updateCodeIndexConfig();
+    updateLLMAuthHeader();
+    updateEmbeddingAuthHeader();
 
     function updateLLMConfig() {
         const provider = llmProvider.value;
@@ -464,6 +497,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function updateCodeIndexConfig() {
         document.getElementById('code-index-config').style.display = codeIndexEnabled.checked ? 'block' : 'none';
+    }
+
+    function updateLLMAuthHeader() {
+        const authType = llmAuthType.value;
+        document.getElementById('llm-auth-header-group').style.display = authType === 'custom' ? 'block' : 'none';
+    }
+
+    function updateEmbeddingAuthHeader() {
+        const authType = embeddingAuthType.value;
+        document.getElementById('embedding-auth-header-group').style.display = authType === 'custom' ? 'block' : 'none';
     }
 
     // Save config
@@ -499,6 +542,8 @@ async function saveConfig() {
             provider: llmProvider,
             api_url: document.getElementById('llm-api-url').value,
             api_key: document.getElementById('llm-api-key').value,
+            auth_type: document.getElementById('llm-auth-type').value,
+            auth_header: document.getElementById('llm-auth-header').value || 'Authorization',
             model: llmProvider === 'openai'
                 ? document.getElementById('llm-model').value
                 : document.getElementById('llm-ollama-model').value,
@@ -508,6 +553,8 @@ async function saveConfig() {
             provider: embeddingProvider,
             api_url: document.getElementById('embedding-api-url').value,
             api_key: document.getElementById('embedding-api-key').value,
+            auth_type: document.getElementById('embedding-auth-type').value,
+            auth_header: document.getElementById('embedding-auth-header').value || 'Authorization',
             model: document.getElementById('embedding-model').value,
             ollama_host: document.getElementById('embedding-ollama-host').value,
             ollama_model: document.getElementById('embedding-ollama-model').value,

@@ -15,6 +15,10 @@ class LLMConfig(BaseModel):
     api_url: str = "https://api.openai.com/v1"
     api_key: str = ""
     model: str = "gpt-4o-mini"
+    # Authentication type: bearer, api_key, custom, none
+    auth_type: Literal["bearer", "api_key", "custom", "none"] = "bearer"
+    # Custom header name (used when auth_type is "custom")
+    auth_header: str = "Authorization"
     # Ollama specific
     ollama_host: str = "http://localhost:11434"
 
@@ -26,6 +30,10 @@ class EmbeddingConfig(BaseModel):
     api_url: str = "https://api.openai.com/v1"
     api_key: str = ""
     model: str = "text-embedding-3-small"
+    # Authentication type: bearer, api_key, custom, none
+    auth_type: Literal["bearer", "api_key", "custom", "none"] = "bearer"
+    # Custom header name (used when auth_type is "custom")
+    auth_header: str = "Authorization"
     # Ollama specific
     ollama_host: str = "http://localhost:11434"
     ollama_model: str = "nomic-embed-text"
