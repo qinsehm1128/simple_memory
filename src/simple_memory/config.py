@@ -3,7 +3,7 @@
 import json
 import os
 from pathlib import Path
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -22,15 +22,33 @@ class LLMConfig(BaseModel):
 class EmbeddingConfig(BaseModel):
     """Embedding model configuration."""
 
-    provider: Literal["openai", "ollama"] = "openai"
+    provider: Literal["openai", "ollama", "remark"] = "openai"
     api_url: str = "https://api.openai.com/v1"
     api_key: str = ""
     model: str = "text-embedding-3-small"
     # Ollama specific
     ollama_host: str = "http://localhost:11434"
     ollama_model: str = "nomic-embed-text"
+    # Remark specific
+    remark_api_url: str = "http://localhost:8080"
+    remark_api_key: str = ""
+    remark_model: str = "remark-embed"
     # Embedding dimensions
     dimensions: int = 1536
+
+
+class RerankConfig(BaseModel):
+    """Rerank model configuration."""
+
+    enabled: bool = False
+    provider: Literal["cohere", "jina", "bge", "custom", "none"] = "custom"
+    api_url: str = "http://localhost:8080"
+    api_key: str = ""
+    model: str = "rerank"
+    # For custom provider
+    request_format: Literal["openai", "cohere", "jina", "simple"] = "openai"
+    # Rerank settings
+    top_k: int = 10  # Number of documents to return after reranking
 
 
 class SearchConfig(BaseModel):
@@ -38,12 +56,43 @@ class SearchConfig(BaseModel):
 
     min_similarity: float = 50.0  # Minimum similarity percentage (0-100)
     distance_threshold: float = 1.0  # Maximum distance threshold
+    # Hybrid search settings
+    hybrid_enabled: bool = False
+    hybrid_alpha: float = 0.5  # Weight for vector search (0-1), keyword is 1-alpha
+    # Initial retrieval count before reranking
+    initial_limit: int = 50
+
+
+class CodeIndexConfig(BaseModel):
+    """Code indexing configuration."""
+
+    enabled: bool = False
+    # Supported file extensions
+    extensions: List[str] = Field(default_factory=lambda: [
+        ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".go", ".rs",
+        ".cpp", ".c", ".h", ".hpp", ".cs", ".rb", ".php", ".swift",
+        ".kt", ".scala", ".vue", ".svelte", ".md", ".txt", ".json",
+        ".yaml", ".yml", ".toml", ".xml", ".html", ".css", ".scss",
+    ])
+    # Directories to ignore
+    ignore_dirs: List[str] = Field(default_factory=lambda: [
+        ".git", "__pycache__", "node_modules", ".venv", "venv",
+        "dist", "build", ".next", ".nuxt", "target", "bin", "obj",
+        ".idea", ".vscode", ".pytest_cache", ".mypy_cache",
+    ])
+    # Max file size in bytes (default 1MB)
+    max_file_size: int = 1048576
+    # Chunk settings for code
+    chunk_size: int = 1500
+    chunk_overlap: int = 200
+    # Whether to extract code structure (functions, classes, etc.)
+    extract_structure: bool = True
 
 
 class DatabaseConfig(BaseModel):
     """Database configuration."""
 
-    path: str = "./data/chromadb"
+    path: str = "./data/satoridb"
     table_name: str = "memories"
 
 
@@ -60,7 +109,9 @@ class AppConfig(BaseModel):
 
     llm: LLMConfig = Field(default_factory=LLMConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
+    rerank: RerankConfig = Field(default_factory=RerankConfig)
     search: SearchConfig = Field(default_factory=SearchConfig)
+    code_index: CodeIndexConfig = Field(default_factory=CodeIndexConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     web: WebConfig = Field(default_factory=WebConfig)
     configured: bool = False
@@ -81,6 +132,9 @@ class AppConfig(BaseModel):
                 return False
         elif self.embedding.provider == "ollama":
             if not self.embedding.ollama_host:
+                return False
+        elif self.embedding.provider == "remark":
+            if not self.embedding.remark_api_url:
                 return False
 
         return True

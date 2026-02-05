@@ -10,6 +10,7 @@ from typing import Any, Dict
 from flask import Flask, jsonify, render_template, request
 
 from ..config import AppConfig, get_config, get_config_manager
+from ..database import get_db_manager, reset_db_manager
 from ..memory import get_memory_manager, reset_memory_manager
 
 logging.basicConfig(level=logging.INFO)
@@ -96,6 +97,12 @@ def update_config_api():
         if "search" in data:
             updates["search"] = data["search"]
 
+        if "rerank" in data:
+            updates["rerank"] = data["rerank"]
+
+        if "code_index" in data:
+            updates["code_index"] = data["code_index"]
+
         if "web" in data:
             updates["web"] = data["web"]
 
@@ -103,6 +110,7 @@ def update_config_api():
 
         # Reset memory manager to pick up new config
         reset_memory_manager()
+        reset_db_manager()
 
         return jsonify({"success": True, "config": new_config.model_dump()})
     except Exception as e:
@@ -120,6 +128,7 @@ async def test_config_api():
         results = {
             "llm": {"success": False, "message": ""},
             "embedding": {"success": False, "message": ""},
+            "rerank": {"success": False, "message": "", "enabled": config.rerank.enabled},
         }
 
         # Test LLM
@@ -128,7 +137,7 @@ async def test_config_api():
 
             llm = get_llm_provider(config.llm)
             response = await llm.chat([{"role": "user", "content": "Say 'ok' if you can hear me."}])
-            results["llm"] = {"success": True, "message": f"LLM connected: {response[:50]}..."}
+            results["llm"] = {"success": True, "message": f"LLM 连接成功: {response[:50]}..."}
         except Exception as e:
             results["llm"] = {"success": False, "message": str(e)}
 
@@ -140,10 +149,39 @@ async def test_config_api():
             vector = await embedding.embed("test")
             results["embedding"] = {
                 "success": True,
-                "message": f"Embedding connected. Dimensions: {len(vector)}",
+                "message": f"嵌入模型连接成功。维度: {len(vector)}",
             }
         except Exception as e:
             results["embedding"] = {"success": False, "message": str(e)}
+
+        # Test Rerank (optional)
+        if config.rerank.enabled:
+            try:
+                from ..rerank import get_rerank_provider
+
+                reranker = get_rerank_provider()
+                if reranker:
+                    # Simple test with two documents
+                    rerank_results = await reranker.rerank(
+                        query="test query",
+                        documents=["test document 1", "test document 2"],
+                        top_k=2,
+                    )
+                    results["rerank"] = {
+                        "success": True,
+                        "message": f"Rerank 连接成功: {reranker.get_name()}",
+                        "enabled": True,
+                    }
+                else:
+                    results["rerank"] = {
+                        "success": False,
+                        "message": "Rerank provider not configured",
+                        "enabled": True,
+                    }
+            except Exception as e:
+                results["rerank"] = {"success": False, "message": str(e), "enabled": True}
+        else:
+            results["rerank"] = {"success": True, "message": "Rerank 已禁用", "enabled": False}
 
         # Core services (LLM + Embedding) must succeed
         overall_success = results["llm"]["success"] and results["embedding"]["success"]
@@ -166,7 +204,7 @@ async def list_memories_api():
     try:
         config = get_config()
         if not config.is_configured():
-            return jsonify({"success": False, "error": "System not configured"}), 400
+            return jsonify({"success": False, "error": "系统未配置"}), 400
 
         user_id = request.args.get("user_id")
         limit = int(request.args.get("limit", 100))
@@ -194,7 +232,7 @@ async def add_memory_api():
     try:
         config = get_config()
         if not config.is_configured():
-            return jsonify({"success": False, "error": "System not configured"}), 400
+            return jsonify({"success": False, "error": "系统未配置"}), 400
 
         data = request.json
         content = data.get("content")
@@ -203,7 +241,7 @@ async def add_memory_api():
         chunk_long_text = data.get("chunk_long_text", True)
 
         if not content:
-            return jsonify({"success": False, "error": "Content is required"}), 400
+            return jsonify({"success": False, "error": "内容不能为空"}), 400
 
         memory_manager = get_memory_manager()
         memory_ids = await memory_manager.add_memory(
@@ -231,13 +269,13 @@ async def get_memory_api(memory_id: str):
     try:
         config = get_config()
         if not config.is_configured():
-            return jsonify({"success": False, "error": "System not configured"}), 400
+            return jsonify({"success": False, "error": "系统未配置"}), 400
 
         memory_manager = get_memory_manager()
         memory = await memory_manager.get_memory(memory_id)
 
         if not memory:
-            return jsonify({"success": False, "error": "Memory not found"}), 404
+            return jsonify({"success": False, "error": "记忆未找到"}), 404
 
         memory.pop("vector", None)
         return jsonify({"success": True, "memory": memory})
@@ -253,7 +291,7 @@ async def delete_memory_api(memory_id: str):
     try:
         config = get_config()
         if not config.is_configured():
-            return jsonify({"success": False, "error": "System not configured"}), 400
+            return jsonify({"success": False, "error": "系统未配置"}), 400
 
         memory_manager = get_memory_manager()
         success = await memory_manager.delete_memory(memory_id)
@@ -267,31 +305,47 @@ async def delete_memory_api(memory_id: str):
 @app.route("/api/memories/search", methods=["POST"])
 @run_async
 async def search_memories_api():
-    """Search memories."""
+    """Search memories with optional hybrid search and reranking."""
     try:
         config = get_config()
         if not config.is_configured():
-            return jsonify({"success": False, "error": "System not configured"}), 400
+            return jsonify({"success": False, "error": "系统未配置"}), 400
 
         data = request.json
         query = data.get("query")
         limit = data.get("limit", 10)
         user_id = data.get("user_id")
         tags = data.get("tags")
+        use_hybrid = data.get("use_hybrid")  # None = use config default
+        hybrid_alpha = data.get("hybrid_alpha")
+        use_rerank = data.get("use_rerank")  # None = use config default
+        min_similarity = data.get("min_similarity")
 
         if not query:
-            return jsonify({"success": False, "error": "Query is required"}), 400
+            return jsonify({"success": False, "error": "查询内容不能为空"}), 400
 
         memory_manager = get_memory_manager()
         results = await memory_manager.search(
-            query=query, limit=limit, user_id=user_id, tags=tags
+            query=query,
+            limit=limit,
+            user_id=user_id,
+            tags=tags,
+            use_hybrid=use_hybrid,
+            hybrid_alpha=hybrid_alpha,
+            use_rerank=use_rerank,
+            min_similarity=min_similarity,
         )
 
         # Remove vector from response
         for mem in results:
             mem.pop("vector", None)
 
-        return jsonify({"success": True, "results": results})
+        return jsonify({
+            "success": True,
+            "results": results,
+            "search_mode": "hybrid" if (use_hybrid or config.search.hybrid_enabled) else "vector",
+            "rerank_enabled": use_rerank if use_rerank is not None else config.rerank.enabled,
+        })
     except Exception as e:
         logger.exception("Error searching memories")
         return jsonify({"success": False, "error": str(e)}), 400
@@ -320,6 +374,374 @@ async def get_stats_api():
         )
     except Exception as e:
         logger.exception("Error getting stats")
+        return jsonify({"success": False, "error": str(e)}), 400
+
+
+# Database Management APIs
+
+
+@app.route("/api/database/info", methods=["GET"])
+@run_async
+async def get_database_info_api():
+    """Get database information and statistics."""
+    try:
+        db = get_db_manager()
+        config = get_config()
+
+        # Initialize if not already
+        if not db._initialized:
+            db.initialize(config.embedding.dimensions)
+
+        info = db.get_database_info()
+        return jsonify({"success": True, "info": info})
+    except Exception as e:
+        logger.exception("Error getting database info")
+        return jsonify({"success": False, "error": str(e)}), 400
+
+
+@app.route("/api/database/rebuild", methods=["POST"])
+@run_async
+async def rebuild_database_api():
+    """Rebuild the database with optional new vector dimensions.
+
+    This will clear all vectors but preserve memory metadata.
+    After rebuilding, memories need to be re-embedded.
+    """
+    try:
+        data = request.json or {}
+        new_dimensions = data.get("dimensions")
+        re_embed = data.get("re_embed", False)
+
+        config = get_config()
+
+        # Update config with new dimensions if specified
+        if new_dimensions:
+            config_manager = get_config_manager()
+            config_manager.update(embedding={"dimensions": new_dimensions})
+
+        # Reset and get fresh db manager
+        reset_db_manager()
+        reset_memory_manager()
+
+        db = get_db_manager()
+        db.initialize(new_dimensions or config.embedding.dimensions)
+
+        # Rebuild database
+        result = db.rebuild_database(new_dimensions)
+
+        # Re-embed all memories if requested
+        if re_embed and result.get("memory_count", 0) > 0:
+            memory_manager = get_memory_manager()
+            await memory_manager.initialize()
+
+            # Get all memories and re-embed them
+            memories_to_reembed = db.export_memories()
+            reembedded_count = 0
+
+            for mem in memories_to_reembed:
+                try:
+                    # Re-embed with LLM processing
+                    processed_embedding = await memory_manager.embeddings.embed(
+                        mem.get("processed_content") or mem.get("content", "")
+                    )
+                    content_embedding = await memory_manager.embeddings.embed(
+                        mem.get("content", "")
+                    )
+
+                    # Update the memory with new vectors
+                    db.update_memory(mem["id"], {
+                        "vector": processed_embedding,
+                        "content_vector": content_embedding,
+                    })
+                    reembedded_count += 1
+                except Exception as e:
+                    logger.warning(f"Failed to re-embed memory {mem['id']}: {e}")
+
+            result["reembedded_count"] = reembedded_count
+
+        return jsonify({"success": True, "result": result})
+    except Exception as e:
+        logger.exception("Error rebuilding database")
+        return jsonify({"success": False, "error": str(e)}), 400
+
+
+@app.route("/api/database/clear", methods=["POST"])
+@run_async
+async def clear_database_api():
+    """Completely clear the database (all memories and vectors)."""
+    try:
+        data = request.json or {}
+        confirm = data.get("confirm", False)
+
+        if not confirm:
+            return jsonify({
+                "success": False,
+                "error": "请确认清空操作，设置 confirm: true"
+            }), 400
+
+        db = get_db_manager()
+        config = get_config()
+
+        if not db._initialized:
+            db.initialize(config.embedding.dimensions)
+
+        result = db.clear_database()
+
+        # Reset managers
+        reset_memory_manager()
+
+        return jsonify({"success": True, "result": result})
+    except Exception as e:
+        logger.exception("Error clearing database")
+        return jsonify({"success": False, "error": str(e)}), 400
+
+
+@app.route("/api/database/export", methods=["GET"])
+@run_async
+async def export_database_api():
+    """Export all memories for backup."""
+    try:
+        db = get_db_manager()
+        config = get_config()
+
+        if not db._initialized:
+            db.initialize(config.embedding.dimensions)
+
+        memories = db.export_memories()
+        return jsonify({
+            "success": True,
+            "memories": memories,
+            "count": len(memories)
+        })
+    except Exception as e:
+        logger.exception("Error exporting database")
+        return jsonify({"success": False, "error": str(e)}), 400
+
+
+@app.route("/api/database/import", methods=["POST"])
+@run_async
+async def import_database_api():
+    """Import memories from backup and re-embed them."""
+    try:
+        data = request.json
+        memories = data.get("memories", [])
+
+        if not memories:
+            return jsonify({"success": False, "error": "没有要导入的记忆"}), 400
+
+        config = get_config()
+        if not config.is_configured():
+            return jsonify({"success": False, "error": "系统未配置"}), 400
+
+        memory_manager = get_memory_manager()
+        await memory_manager.initialize()
+
+        imported_count = 0
+        failed_count = 0
+
+        for mem in memories:
+            try:
+                # Re-add memory (will generate new embeddings)
+                await memory_manager.add_memory(
+                    content=mem.get("content", ""),
+                    user_id=mem.get("user_id", "default"),
+                    metadata=mem.get("metadata", {}),
+                    process_with_llm=True,  # Re-process with LLM
+                    chunk_long_text=False,  # Don't re-chunk
+                )
+                imported_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to import memory: {e}")
+                failed_count += 1
+
+        return jsonify({
+            "success": True,
+            "imported": imported_count,
+            "failed": failed_count
+        })
+    except Exception as e:
+        logger.exception("Error importing database")
+        return jsonify({"success": False, "error": str(e)}), 400
+
+
+# Code Indexing APIs
+
+
+@app.route("/api/code/index/file", methods=["POST"])
+@run_async
+async def index_code_file_api():
+    """Index a single code file."""
+    try:
+        config = get_config()
+        if not config.is_configured():
+            return jsonify({"success": False, "error": "系统未配置"}), 400
+
+        if not config.code_index.enabled:
+            return jsonify({"success": False, "error": "代码索引功能未启用"}), 400
+
+        data = request.json
+        file_path = data.get("file_path")
+        user_id = data.get("user_id", "default")
+        force = data.get("force", False)
+
+        if not file_path:
+            return jsonify({"success": False, "error": "文件路径不能为空"}), 400
+
+        memory_manager = get_memory_manager()
+        memory_ids = await memory_manager.index_code_file(
+            file_path=file_path,
+            user_id=user_id,
+            force=force,
+        )
+
+        return jsonify({
+            "success": True,
+            "file_path": file_path,
+            "chunks_indexed": len(memory_ids),
+            "memory_ids": memory_ids,
+        })
+    except Exception as e:
+        logger.exception("Error indexing code file")
+        return jsonify({"success": False, "error": str(e)}), 400
+
+
+@app.route("/api/code/index/directory", methods=["POST"])
+@run_async
+async def index_code_directory_api():
+    """Index all code files in a directory."""
+    try:
+        config = get_config()
+        if not config.is_configured():
+            return jsonify({"success": False, "error": "系统未配置"}), 400
+
+        if not config.code_index.enabled:
+            return jsonify({"success": False, "error": "代码索引功能未启用"}), 400
+
+        data = request.json
+        directory = data.get("directory")
+        user_id = data.get("user_id", "default")
+        recursive = data.get("recursive", True)
+        force = data.get("force", False)
+
+        if not directory:
+            return jsonify({"success": False, "error": "目录路径不能为空"}), 400
+
+        memory_manager = get_memory_manager()
+        stats = await memory_manager.index_code_directory(
+            directory=directory,
+            user_id=user_id,
+            recursive=recursive,
+            force=force,
+        )
+
+        return jsonify({
+            "success": True,
+            "directory": directory,
+            "stats": stats,
+        })
+    except Exception as e:
+        logger.exception("Error indexing code directory")
+        return jsonify({"success": False, "error": str(e)}), 400
+
+
+@app.route("/api/code/update", methods=["POST"])
+@run_async
+async def update_code_files_api():
+    """Update only changed code files in a directory (incremental update)."""
+    try:
+        config = get_config()
+        if not config.is_configured():
+            return jsonify({"success": False, "error": "系统未配置"}), 400
+
+        if not config.code_index.enabled:
+            return jsonify({"success": False, "error": "代码索引功能未启用"}), 400
+
+        data = request.json
+        directory = data.get("directory")
+        user_id = data.get("user_id", "default")
+        recursive = data.get("recursive", True)
+
+        if not directory:
+            return jsonify({"success": False, "error": "目录路径不能为空"}), 400
+
+        memory_manager = get_memory_manager()
+        stats = await memory_manager.update_code_files(
+            directory=directory,
+            user_id=user_id,
+            recursive=recursive,
+        )
+
+        return jsonify({
+            "success": True,
+            "directory": directory,
+            "stats": stats,
+        })
+    except Exception as e:
+        logger.exception("Error updating code files")
+        return jsonify({"success": False, "error": str(e)}), 400
+
+
+@app.route("/api/code/search", methods=["POST"])
+@run_async
+async def search_code_api():
+    """Search for code in indexed files."""
+    try:
+        config = get_config()
+        if not config.is_configured():
+            return jsonify({"success": False, "error": "系统未配置"}), 400
+
+        data = request.json
+        query = data.get("query")
+        limit = data.get("limit", 10)
+        language = data.get("language")
+        file_path_pattern = data.get("file_path_pattern")
+        chunk_type = data.get("chunk_type")  # function, class, method, etc.
+
+        if not query:
+            return jsonify({"success": False, "error": "查询内容不能为空"}), 400
+
+        memory_manager = get_memory_manager()
+        results = await memory_manager.search_code(
+            query=query,
+            limit=limit,
+            language=language,
+            file_path_pattern=file_path_pattern,
+            chunk_type=chunk_type,
+        )
+
+        # Remove vector from response
+        for mem in results:
+            mem.pop("vector", None)
+
+        return jsonify({
+            "success": True,
+            "results": results,
+            "count": len(results),
+        })
+    except Exception as e:
+        logger.exception("Error searching code")
+        return jsonify({"success": False, "error": str(e)}), 400
+
+
+@app.route("/api/code/indexed-files", methods=["GET"])
+@run_async
+async def get_indexed_files_api():
+    """Get information about indexed code files."""
+    try:
+        config = get_config()
+        if not config.is_configured():
+            return jsonify({"success": True, "files": {}})
+
+        memory_manager = get_memory_manager()
+        files = memory_manager.get_indexed_files()
+
+        return jsonify({
+            "success": True,
+            "files": files,
+            "count": len(files),
+        })
+    except Exception as e:
+        logger.exception("Error getting indexed files")
         return jsonify({"success": False, "error": str(e)}), 400
 
 
